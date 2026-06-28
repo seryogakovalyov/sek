@@ -325,18 +325,18 @@ sekctl list --project _global
 - [x] `sek gc --older-than 720h` — очистка старых записей по TTL
 
 ### Phase 4 — Pro-фичи
-- [ ] Feedback loop: агент оценивает полезность выданного опыта → влияет на score
-- [ ] Retrieval telemetry: сохранять какие knowledge entries были выданы на запрос и какие из них агент реально использовал
+- [x] Secret redaction перед сохранением events/knowledge: ключи, токены, пароли, приватные URL
 - [x] Golden evals для дистилляции: fixture events → expected observations, чтобы prompt не терял пути, команды, config keys и tool names
-- [ ] Experience diff: показывать что изменилось между сессиями
 - [x] Source trace: показывать для каждого lesson/pattern исходные events/observations и почему запись попала в ответ
+- [ ] `sekctl gc --before <timestamp>`: абсолютный cutoff + удаление orphan-derived lessons/patterns, которые ссылаются на удалённые source_ids
+- [ ] Retrieval telemetry: сохранять какие knowledge entries были выданы на запрос и какие из них агент реально использовал
+- [ ] Feedback loop: агент оценивает полезность выданного опыта → влияет на score
 - [ ] Knowledge lifecycle: `supersedes`, `conflicts_with`, `deprecated_at` для устаревших или заменённых решений
-- [ ] Экспорт/импорт знаний между проектами
-- [ ] MCP resources: knowledge как read-only ресурсы, а не только инструменты
 - [ ] Автоматическая очистка устаревших наблюдений (TTL + relevance decay)
 - [ ] `sekctl --help`: top-level help должен печатать usage и выходить с code 0
-- [ ] `sekctl gc --before <timestamp>`: абсолютный cutoff + удаление orphan-derived lessons/patterns, которые ссылаются на удалённые source_ids
-- [x] Secret redaction перед сохранением events/knowledge: ключи, токены, пароли, приватные URL
+- [ ] MCP resources: knowledge как read-only ресурсы, а не только инструменты
+- [ ] Experience diff: показывать что изменилось между сессиями
+- [ ] Экспорт/импорт знаний между проектами
 
 ### Phase 5 — Экосистема
 - [ ] Go SDK для программной интеграции
