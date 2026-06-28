@@ -34,13 +34,12 @@ func newMCPServer(st store.Store, provider llm.Provider, embedder llm.Embedder, 
 		eventType := mcp.ParseString(req, "event_type", "")
 		source := mcp.ParseString(req, "source", "")
 		content := mcp.ParseString(req, "content", "")
-		projectID := mcp.ParseString(req, "project_id", "default")
 		sessionID := mcp.ParseString(req, "session_id", "")
 		if sessionID == "" {
 			sessionID = serverSessionID
 		}
 
-		event, err := captureSvc.Capture(ctx, projectID, sessionID, serverSessionID, models.EventType(eventType), source, content)
+		event, err := captureSvc.Capture(ctx, "default", sessionID, serverSessionID, models.EventType(eventType), source, content)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("capture failed: %v", err)), nil
 		}
@@ -56,13 +55,12 @@ func newMCPServer(st store.Store, provider llm.Provider, embedder llm.Embedder, 
 	})
 
 	s.AddTool(queryTool(), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		projectID := mcp.ParseString(req, "project_id", "default")
 		task := mcp.ParseString(req, "task", "")
 		maxTokens := mcp.ParseInt(req, "max_tokens", 2000)
 		maxEntries := mcp.ParseInt(req, "max_entries", 10)
 
 		result, err := reuseEngine.Query(ctx, models.ReuseRequest{
-			ProjectID: projectID,
+			ProjectID: "default",
 			Task:      task,
 			Budget: models.ContextBudget{
 				MaxTokens:  maxTokens,
@@ -81,7 +79,7 @@ func newMCPServer(st store.Store, provider llm.Provider, embedder llm.Embedder, 
 			output = "No relevant experience found."
 		}
 
-		retrievalID := logRetrieval(ctx, st, projectID, serverSessionID, task, result.Knowledge)
+		retrievalID := logRetrieval(ctx, st, "default", serverSessionID, task, result.Knowledge)
 		if retrievalID != "" {
 			output = fmt.Sprintf("retrieval_id: %s\n\n%s", retrievalID, output)
 		}
@@ -108,11 +106,10 @@ func newMCPServer(st store.Store, provider llm.Provider, embedder llm.Embedder, 
 	})
 
 	s.AddTool(listKnowledgeTool(), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		projectID := mcp.ParseString(req, "project_id", "default")
 		level := mcp.ParseString(req, "level", "")
 		limit := mcp.ParseInt(req, "limit", 20)
 
-		knowledge, err := st.List(ctx, projectID, models.KnowledgeLevel(level), limit)
+		knowledge, err := st.List(ctx, "default", models.KnowledgeLevel(level), limit)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("list failed: %v", err)), nil
 		}
@@ -217,9 +214,6 @@ WHAT NOT TO CAPTURE: trivial steps, work-in-progress, obvious boilerplate, every
 			mcp.Required(),
 			mcp.Description("Detailed description of the event — include error messages, file paths, command examples, rationale. The more context, the better the distilled observation will be."),
 		),
-		mcp.WithString("project_id",
-			mcp.Description("Project identifier (default: 'default')"),
-		),
 		mcp.WithString("session_id",
 			mcp.Description("Session identifier (auto-tagged with server session if empty)"),
 		),
@@ -245,9 +239,6 @@ HOW TO QUERY:
 - For errors: paste the actual error message
 - The search is semantic (vector-based), so language doesn't matter — queries in ANY language find related English observations
 `),
-		mcp.WithString("project_id",
-			mcp.Description("Project identifier (default: 'default')"),
-		),
 		mcp.WithString("task",
 			mcp.Required(),
 			mcp.Description("Task description or question — be specific, include error messages or file paths where relevant"),
@@ -302,9 +293,6 @@ func reportUsageTool() mcp.Tool {
 func listKnowledgeTool() mcp.Tool {
 	return mcp.NewTool("list_knowledge",
 		mcp.WithDescription("List stored knowledge entries"),
-		mcp.WithString("project_id",
-			mcp.Description("Project identifier (default: 'default')"),
-		),
 		mcp.WithString("level",
 			mcp.Description("Filter by level: observation, lesson, pattern"),
 		),

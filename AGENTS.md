@@ -1,6 +1,7 @@
 # SEK: Project Experience Runtime
 
 You have access to SEK via MCP tools (`capture_event`, `query_experience`, `report_usage`, `list_knowledge`).
+All tools write to a single project context — no `project_id` parameter needed.
 SEK remembers what you learn across sessions. Use it deliberately.
 
 ## When to call `capture_event`
