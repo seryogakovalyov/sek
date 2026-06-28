@@ -16,6 +16,7 @@ import (
 	"github.com/anomalyco/sek/internal/models"
 	"github.com/anomalyco/sek/internal/reuse"
 	"github.com/anomalyco/sek/internal/store"
+	"github.com/anomalyco/sek/internal/trace"
 )
 
 func newMCPServer(st store.Store, provider llm.Provider, embedder llm.Embedder, modelName string, serverSessionID string) *server.MCPServer {
@@ -72,11 +73,7 @@ func newMCPServer(st store.Store, provider llm.Provider, embedder llm.Embedder, 
 
 		output := ""
 		for _, k := range result.Knowledge {
-			score := ""
-			if k.Score > 0 {
-				score = fmt.Sprintf(" (score: %.3f)", k.Score)
-			}
-			output += fmt.Sprintf("[%s] %s%s\n---\n%s\n\n", k.Level, k.CreatedAt.Format("2006-01-02"), score, k.Content)
+			output += trace.FormatKnowledge(k, true) + "\n\n"
 		}
 		if output == "" {
 			output = "No relevant experience found."
@@ -97,7 +94,7 @@ func newMCPServer(st store.Store, provider llm.Provider, embedder llm.Embedder, 
 
 		output := ""
 		for _, k := range knowledge {
-			output += fmt.Sprintf("[%s] %s\n%s\n\n", k.Level, k.CreatedAt.Format("2006-01-02"), k.Content)
+			output += trace.FormatKnowledge(k, false) + "\n\n"
 		}
 		if output == "" {
 			output = "No knowledge stored yet."

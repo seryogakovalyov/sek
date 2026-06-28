@@ -15,6 +15,7 @@ import (
 	"github.com/anomalyco/sek/internal/models"
 	"github.com/anomalyco/sek/internal/reuse"
 	"github.com/anomalyco/sek/internal/store"
+	"github.com/anomalyco/sek/internal/trace"
 )
 
 func main() {
@@ -153,13 +154,13 @@ func cmdList(args []string) {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tLEVEL\tCREATED\tCONTENT")
+	fmt.Fprintln(w, "ID\tLEVEL\tCREATED\tSOURCES\tCONTENT")
 	for _, k := range knowledge {
 		content := strings.ReplaceAll(k.Content, "\n", " ")
 		if len(content) > 60 {
 			content = content[:60] + "..."
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", k.ID, k.Level, k.CreatedAt.Format("2006-01-02 15:04"), content)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", k.ID, k.Level, k.CreatedAt.Format("2006-01-02 15:04"), strings.Join(k.SourceIDs, ","), content)
 	}
 	w.Flush()
 	fmt.Printf("\n%d entries\n", len(knowledge))
@@ -408,11 +409,8 @@ func cmdQuery(args []string) {
 	}
 
 	for _, k := range result.Knowledge {
-		score := ""
-		if k.Score > 0 {
-			score = fmt.Sprintf(" (score: %.3f)", k.Score)
-		}
-		fmt.Printf("[%s] %s%s\n---\n%s\n\n", k.Level, k.CreatedAt.Format("2006-01-02"), score, k.Content)
+		fmt.Println(trace.FormatKnowledge(k, true))
+		fmt.Println()
 	}
 	fmt.Printf("total tokens: %d\n", result.TotalTokens)
 }

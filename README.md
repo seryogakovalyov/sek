@@ -329,7 +329,7 @@ sekctl list --project _global
 - [ ] Retrieval telemetry: сохранять какие knowledge entries были выданы на запрос и какие из них агент реально использовал
 - [x] Golden evals для дистилляции: fixture events → expected observations, чтобы prompt не терял пути, команды, config keys и tool names
 - [ ] Experience diff: показывать что изменилось между сессиями
-- [ ] Source trace: показывать для каждого lesson/pattern исходные events/observations и почему запись попала в ответ
+- [x] Source trace: показывать для каждого lesson/pattern исходные events/observations и почему запись попала в ответ
 - [ ] Knowledge lifecycle: `supersedes`, `conflicts_with`, `deprecated_at` для устаревших или заменённых решений
 - [ ] Экспорт/импорт знаний между проектами
 - [ ] MCP resources: knowledge как read-only ресурсы, а не только инструменты
