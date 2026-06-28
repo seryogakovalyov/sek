@@ -93,6 +93,13 @@ func storePath(project string) string {
 	return filepath.Join(project, ".sek", "store.db")
 }
 
+func storeKind(project string) string {
+	if project == "_global" {
+		return "global shared"
+	}
+	return "per-project"
+}
+
 func openStore(project string) store.Store {
 	s, err := store.NewSQLite(storePath(project))
 	if err != nil {
@@ -135,7 +142,6 @@ func cmdInit(args []string) {
 func cmdList(args []string) {
 	fs := flag.NewFlagSet("list", flag.ExitOnError)
 	project := fs.String("project", "", "project directory (default: cwd)")
-	projectID := fs.String("project-id", "", "project ID (required with --project _global)")
 	level := fs.String("level", "", "filter by level: observation, lesson, pattern")
 	limit := fs.Int("limit", 20, "max entries")
 	fs.Parse(args)
@@ -144,7 +150,7 @@ func cmdList(args []string) {
 	defer s.Close()
 
 	ctx := context.Background()
-	knowledge, err := s.List(ctx, resolveProjectID(*project, *projectID), models.KnowledgeLevel(*level), *limit)
+	knowledge, err := s.List(ctx, models.KnowledgeLevel(*level), *limit)
 	if err != nil {
 		log.Fatalf("list: %v", err)
 	}
@@ -167,23 +173,11 @@ func cmdList(args []string) {
 	fmt.Printf("\n%d entries\n", len(knowledge))
 }
 
-func defaultProjectID(projectDir string) string {
-	return "default"
-}
-
-func resolveProjectID(projectDir, projectID string) string {
-	if projectID != "" {
-		return projectID
-	}
-	return "default"
-}
-
 // --- log ---
 
 func cmdLog(args []string) {
 	fs := flag.NewFlagSet("log", flag.ExitOnError)
 	project := fs.String("project", "", "project directory (default: cwd)")
-	projectID := fs.String("project-id", "", "project ID (required with --project _global)")
 	limit := fs.Int("limit", 20, "max events")
 	fs.Parse(args)
 
@@ -191,7 +185,7 @@ func cmdLog(args []string) {
 	defer s.Close()
 
 	ctx := context.Background()
-	events, err := s.Query(ctx, resolveProjectID(*project, *projectID), *limit)
+	events, err := s.Query(ctx, *limit)
 	if err != nil {
 		log.Fatalf("query events: %v", err)
 	}
@@ -241,20 +235,18 @@ func cmdRemove(args []string) {
 func cmdStatus(args []string) {
 	fs := flag.NewFlagSet("status", flag.ExitOnError)
 	project := fs.String("project", "", "project directory (default: cwd)")
-	projectID := fs.String("project-id", "", "project ID (required with --project _global)")
 	fs.Parse(args)
 
 	s := openStore(*project)
 	defer s.Close()
 
-	pid := resolveProjectID(*project, *projectID)
 	ctx := context.Background()
-	stats, err := s.Stats(ctx, pid)
+	stats, err := s.Stats(ctx)
 	if err != nil {
 		log.Fatalf("stats: %v", err)
 	}
 
-	fmt.Printf("Project:     %s\n", pid)
+	fmt.Printf("Store:       %s\n", storeKind(*project))
 	fmt.Printf("DB path:     %s\n", storePath(*project))
 	fmt.Printf("DB size:     %d KB\n", stats.DBSizeBytes/1024)
 	fmt.Printf("Events:      %d\n", stats.EventCount)
@@ -266,8 +258,6 @@ func cmdStatus(args []string) {
 func cmdGC(args []string) {
 	fs := flag.NewFlagSet("gc", flag.ExitOnError)
 	project := fs.String("project", "", "project directory (default: cwd)")
-	projectID := fs.String("project-id", "", "project ID (required with --project _global)")
-	allProjects := fs.Bool("all", false, "apply to all projects in the store")
 	olderThan := fs.String("older-than", "", "delete entries older than this duration (e.g. 720h, 168h)")
 	before := fs.String("before", "", "delete entries created before this timestamp (RFC3339 or YYYY-MM-DD)")
 	dryRun := fs.Bool("dry-run", false, "show what would be deleted without deleting")
@@ -301,11 +291,6 @@ func cmdGC(args []string) {
 	}
 	cutoffStr := cutoff.Format(time.RFC3339Nano)
 
-	pid := resolveProjectID(*project, *projectID)
-	if *allProjects {
-		pid = "*"
-	}
-
 	if *dryRun {
 		fmt.Printf("Store:  %s\n", sp)
 		if *before != "" {
@@ -313,13 +298,12 @@ func cmdGC(args []string) {
 		} else {
 			fmt.Printf("Cutoff: %s (older than %s)\n", cutoff.Format("2006-01-02"), *olderThan)
 		}
-		fmt.Printf("Filter: %s\n", map[bool]string{true: "all projects", false: "project " + pid}[*allProjects])
 		fmt.Println("(dry-run, no changes made)")
 		return
 	}
 
 	ctx := context.Background()
-	result, err := s.GC(ctx, pid, cutoffStr)
+	result, err := s.GC(ctx, cutoffStr)
 	if err != nil {
 		log.Fatalf("gc: %v", err)
 	}
@@ -376,7 +360,6 @@ func parseDuration(s string) time.Duration {
 func cmdPrune(args []string) {
 	fs := flag.NewFlagSet("prune", flag.ExitOnError)
 	project := fs.String("project", "", "project directory (default: cwd)")
-	projectID := fs.String("project-id", "", "project ID (required with --project _global)")
 	force := fs.Bool("force", false, "skip confirmation")
 	fs.Parse(args)
 
@@ -394,10 +377,10 @@ func cmdPrune(args []string) {
 	defer s.Close()
 
 	ctx := context.Background()
-	if err := s.ClearProject(ctx, resolveProjectID(*project, *projectID)); err != nil {
+	if err := s.Clear(ctx); err != nil {
 		log.Fatalf("prune: %v", err)
 	}
-	fmt.Println("project cleared")
+	fmt.Println("store cleared")
 }
 
 // --- query ---
@@ -405,7 +388,6 @@ func cmdPrune(args []string) {
 func cmdQuery(args []string) {
 	fs := flag.NewFlagSet("query", flag.ExitOnError)
 	project := fs.String("project", "", "project directory (default: cwd)")
-	projectID := fs.String("project-id", "", "project ID (required with --project _global)")
 	llmProvider := fs.String("llm-provider", "openai", "LLM provider")
 	llmModel := fs.String("llm-model", "gpt-4o", "LLM model")
 	llmKey := fs.String("llm-key", "", "LLM API key")
@@ -444,8 +426,7 @@ func cmdQuery(args []string) {
 	engine := reuse.NewEngine(provider, embedder, s)
 	ctx := context.Background()
 	result, err := engine.Query(ctx, models.ReuseRequest{
-		ProjectID: resolveProjectID(*project, *projectID),
-		Task:      task,
+		Task: task,
 		Budget: models.ContextBudget{
 			MaxTokens:  *maxTokens,
 			MaxEntries: *maxEntries,

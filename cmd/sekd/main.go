@@ -22,7 +22,6 @@ import (
 func main() {
 	// CLI flags
 	projectDir := flag.String("project", "", "project directory (default: cwd)")
-	projectID := flag.String("project-id", "", "project ID for global store (required with --project _global)")
 	dataDir := flag.String("data-dir", "", "data directory for global store (default: ~/.sek)")
 	httpAddr := flag.String("http", "", "Streamable HTTP address (e.g. :9090)")
 	llmProvider := flag.String("llm-provider", "openai", "LLM provider: openai or anthropic")
@@ -90,7 +89,6 @@ func main() {
 
 	// 5. Determine store path and project ID
 	var storePath string
-	var mcpProjectID string
 	if cfg.ProjectDir == "_global" {
 		dataDir := cfg.DataDirPath()
 		if err := os.MkdirAll(dataDir, 0755); err != nil {
@@ -98,15 +96,8 @@ func main() {
 		}
 		storePath = filepath.Join(dataDir, "store.db")
 		log.Printf("global store: %s", storePath)
-
-		mcpProjectID = *projectID
-		if mcpProjectID == "" {
-			log.Fatal("--project-id is required when using --project _global")
-		}
-		log.Printf("project ID: %s", mcpProjectID)
 	} else {
 		storePath = cfg.StorePath()
-		mcpProjectID = "default"
 	}
 
 	if err := os.MkdirAll(filepath.Dir(storePath), 0755); err != nil {
@@ -138,12 +129,12 @@ func main() {
 
 	if cfg.MCP.HTTPAddr != "" {
 		log.Printf("starting HTTP server on %s", cfg.MCP.HTTPAddr)
-		if err := mcp.ServeHTTP(ctx, st, provider, embedder, cfg.LLM.Model, sessionID, cfg.MCP.HTTPAddr, mcpProjectID); err != nil {
+		if err := mcp.ServeHTTP(ctx, st, provider, embedder, cfg.LLM.Model, sessionID, cfg.MCP.HTTPAddr); err != nil {
 			log.Fatalf("mcp sse: %v", err)
 		}
 	} else {
 		// stdio mode
-		if err := mcp.Serve(ctx, st, provider, embedder, cfg.LLM.Model, sessionID, mcpProjectID); err != nil {
+		if err := mcp.Serve(ctx, st, provider, embedder, cfg.LLM.Model, sessionID); err != nil {
 			log.Fatalf("mcp: %v", err)
 		}
 	}

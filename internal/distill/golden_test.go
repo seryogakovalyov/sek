@@ -75,7 +75,6 @@ func TestDistillGoldenEvents(t *testing.T) {
 			p := NewPipeline(goldenProvider{t: t, expected: tc.ExpectedObservation}, nil, "golden-model", nil)
 			event := models.Event{
 				ID:        tc.Name,
-				ProjectID: "p",
 				SessionID: "s",
 				Timestamp: time.Now(),
 				Type:      models.EventType(tc.EventType),

@@ -38,7 +38,6 @@ func migrate(db *sql.DB) error {
 	schema := `
 	CREATE TABLE IF NOT EXISTS events (
 		id TEXT PRIMARY KEY,
-		project_id TEXT NOT NULL,
 		session_id TEXT NOT NULL,
 		server_session TEXT DEFAULT '',
 		timestamp TEXT NOT NULL,
@@ -46,11 +45,9 @@ func migrate(db *sql.DB) error {
 		source TEXT NOT NULL,
 		content TEXT NOT NULL
 	);
-	CREATE INDEX IF NOT EXISTS idx_events_project ON events(project_id, timestamp);
 
 	CREATE TABLE IF NOT EXISTS knowledge (
 		id TEXT PRIMARY KEY,
-		project_id TEXT NOT NULL,
 		level TEXT NOT NULL,
 		created_at TEXT NOT NULL,
 		content TEXT NOT NULL,
@@ -59,7 +56,6 @@ func migrate(db *sql.DB) error {
 		event_type TEXT DEFAULT '',
 		importance REAL DEFAULT 0.5
 	);
-	CREATE INDEX IF NOT EXISTS idx_knowledge_project ON knowledge(project_id, level);
 	`
 	_, err := db.Exec(schema)
 	if err != nil {
@@ -82,14 +78,25 @@ func migrate(db *sql.DB) error {
 	if err != nil {
 		// column may already exist
 	}
+	if err := dropLegacyProjectID(db); err != nil {
+		return err
+	}
+
+	_, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp)`)
+	if err != nil {
+		// ignore
+	}
 	_, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_events_ssession ON events(server_session)`)
+	if err != nil {
+		// ignore
+	}
+	_, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_knowledge_level ON knowledge(level)`)
 	if err != nil {
 		// ignore
 	}
 
 	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS retrieval_log (
 		id TEXT PRIMARY KEY,
-		project_id TEXT NOT NULL,
 		session_id TEXT NOT NULL,
 		timestamp TEXT NOT NULL,
 		task TEXT NOT NULL,
@@ -99,7 +106,10 @@ func migrate(db *sql.DB) error {
 	if err != nil {
 		return err
 	}
-	_, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_retrieval_project ON retrieval_log(project_id, timestamp)`)
+	if err := dropLegacyProjectID(db); err != nil {
+		return err
+	}
+	_, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_retrieval_timestamp ON retrieval_log(timestamp)`)
 	if err != nil {
 		// ignore
 	}
@@ -107,22 +117,125 @@ func migrate(db *sql.DB) error {
 	return nil
 }
 
+func dropLegacyProjectID(db *sql.DB) error {
+	if err := rebuildWithoutProjectID(db, "events",
+		`CREATE TABLE events_new (
+			id TEXT PRIMARY KEY,
+			session_id TEXT NOT NULL,
+			server_session TEXT DEFAULT '',
+			timestamp TEXT NOT NULL,
+			type TEXT NOT NULL,
+			source TEXT NOT NULL,
+			content TEXT NOT NULL
+		)`,
+		`INSERT INTO events_new (id, session_id, server_session, timestamp, type, source, content)
+			SELECT id, session_id, COALESCE(server_session, ''), timestamp, type, source, content FROM events`,
+	); err != nil {
+		return err
+	}
+	if err := rebuildWithoutProjectID(db, "knowledge",
+		`CREATE TABLE knowledge_new (
+			id TEXT PRIMARY KEY,
+			level TEXT NOT NULL,
+			created_at TEXT NOT NULL,
+			content TEXT NOT NULL,
+			source_ids TEXT DEFAULT '[]',
+			embedding BLOB,
+			event_type TEXT DEFAULT '',
+			importance REAL DEFAULT 0.5,
+			usage_count INTEGER DEFAULT 0
+		)`,
+		`INSERT INTO knowledge_new (id, level, created_at, content, source_ids, embedding, event_type, importance, usage_count)
+			SELECT id, level, created_at, content, COALESCE(source_ids, '[]'), embedding, COALESCE(event_type, ''), COALESCE(importance, 0.5), COALESCE(usage_count, 0) FROM knowledge`,
+	); err != nil {
+		return err
+	}
+	return rebuildWithoutProjectID(db, "retrieval_log",
+		`CREATE TABLE retrieval_log_new (
+			id TEXT PRIMARY KEY,
+			session_id TEXT NOT NULL,
+			timestamp TEXT NOT NULL,
+			task TEXT NOT NULL,
+			results TEXT DEFAULT '[]',
+			used_ids TEXT DEFAULT '[]'
+		)`,
+		`INSERT INTO retrieval_log_new (id, session_id, timestamp, task, results, used_ids)
+			SELECT id, session_id, timestamp, task, COALESCE(results, '[]'), COALESCE(used_ids, '[]') FROM retrieval_log`,
+	)
+}
+
+func rebuildWithoutProjectID(db *sql.DB, table, createNew, copyRows string) error {
+	hasProjectID, err := tableHasColumn(db, table, "project_id")
+	if err != nil {
+		return err
+	}
+	if !hasProjectID {
+		return nil
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`DROP TABLE IF EXISTS ` + table + `_new`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(createNew); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(copyRows); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DROP TABLE ` + table); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`ALTER TABLE ` + table + `_new RENAME TO ` + table); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func tableHasColumn(db *sql.DB, table, column string) (bool, error) {
+	rows, err := db.Query(`PRAGMA table_info(` + table + `)`)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notNull int
+		var defaultValue any
+		var pk int
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
+			return false, err
+		}
+		if name == column {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
+}
+
 func (s *sqliteStore) Append(ctx context.Context, event *models.Event) error {
 	event.Content = redact.Secrets(event.Content)
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO events (id, project_id, session_id, server_session, timestamp, type, source, content) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		event.ID, event.ProjectID, event.SessionID, event.ServerSession, event.Timestamp.Format(time.RFC3339Nano), string(event.Type), event.Source, event.Content,
+		`INSERT INTO events (id, session_id, server_session, timestamp, type, source, content) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		event.ID, event.SessionID, event.ServerSession, event.Timestamp.Format(time.RFC3339Nano), string(event.Type), event.Source, event.Content,
 	)
 	return err
 }
 
-func (s *sqliteStore) Query(ctx context.Context, projectID string, limit int) ([]models.Event, error) {
+func (s *sqliteStore) Query(ctx context.Context, limit int) ([]models.Event, error) {
 	if limit <= 0 {
 		limit = 100
 	}
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, project_id, session_id, server_session, timestamp, type, source, content FROM events WHERE project_id = ? ORDER BY timestamp DESC LIMIT ?`,
-		projectID, limit,
+		`SELECT id, session_id, server_session, timestamp, type, source, content FROM events ORDER BY timestamp DESC LIMIT ?`,
+		limit,
 	)
 	if err != nil {
 		return nil, err
@@ -139,19 +252,19 @@ func (s *sqliteStore) Save(ctx context.Context, k *models.Knowledge) error {
 		embBytes = encodeEmbedding(k.Embedding)
 	}
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO knowledge (id, project_id, level, created_at, content, source_ids, embedding, event_type, importance, usage_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		k.ID, k.ProjectID, string(k.Level), k.CreatedAt.Format(time.RFC3339Nano), k.Content, string(sourceIDs), embBytes, string(k.EventType), float64(k.Importance), k.UsageCount,
+		`INSERT INTO knowledge (id, level, created_at, content, source_ids, embedding, event_type, importance, usage_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		k.ID, string(k.Level), k.CreatedAt.Format(time.RFC3339Nano), k.Content, string(sourceIDs), embBytes, string(k.EventType), float64(k.Importance), k.UsageCount,
 	)
 	return err
 }
 
-func (s *sqliteStore) Search(ctx context.Context, projectID string, query string, limit int) ([]models.Knowledge, error) {
+func (s *sqliteStore) Search(ctx context.Context, query string, limit int) ([]models.Knowledge, error) {
 	if limit <= 0 {
 		limit = 50
 	}
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, project_id, level, created_at, content, source_ids, embedding, event_type, importance, COALESCE(usage_count, 0) FROM knowledge WHERE project_id = ? AND content LIKE '%' || ? || '%' ORDER BY created_at DESC LIMIT ?`,
-		projectID, query, limit,
+		`SELECT id, level, created_at, content, source_ids, embedding, event_type, importance, COALESCE(usage_count, 0) FROM knowledge WHERE content LIKE '%' || ? || '%' ORDER BY created_at DESC LIMIT ?`,
+		query, limit,
 	)
 	if err != nil {
 		return nil, err
@@ -170,7 +283,7 @@ func scanKnowledge(rows *sql.Rows) ([]models.Knowledge, error) {
 		var evType string
 		var importance float64
 		var usageCount int
-		if err := rows.Scan(&k.ID, &k.ProjectID, &k.Level, &ts, &k.Content, &srcIDs, &embBytes, &evType, &importance, &usageCount); err != nil {
+		if err := rows.Scan(&k.ID, &k.Level, &ts, &k.Content, &srcIDs, &embBytes, &evType, &importance, &usageCount); err != nil {
 			return nil, err
 		}
 		k.CreatedAt, _ = time.Parse(time.RFC3339Nano, ts)
@@ -186,14 +299,13 @@ func scanKnowledge(rows *sql.Rows) ([]models.Knowledge, error) {
 	return knowledge, rows.Err()
 }
 
-func (s *sqliteStore) FindSimilar(ctx context.Context, projectID string, embedding []float32, threshold float64, limit int) ([]models.Knowledge, error) {
+func (s *sqliteStore) FindSimilar(ctx context.Context, embedding []float32, threshold float64, limit int) ([]models.Knowledge, error) {
 	if limit <= 0 {
 		limit = 10
 	}
 
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, project_id, level, created_at, content, source_ids, embedding, event_type, importance, COALESCE(usage_count, 0) FROM knowledge WHERE project_id = ? AND level = 'observation' AND embedding IS NOT NULL`,
-		projectID,
+		`SELECT id, level, created_at, content, source_ids, embedding, event_type, importance, COALESCE(usage_count, 0) FROM knowledge WHERE level = 'observation' AND embedding IS NOT NULL`,
 	)
 	if err != nil {
 		return nil, err
@@ -236,14 +348,13 @@ func (s *sqliteStore) FindSimilar(ctx context.Context, projectID string, embeddi
 	return result, nil
 }
 
-func (s *sqliteStore) SearchSimilar(ctx context.Context, projectID string, embedding []float32, limit int) ([]models.Knowledge, error) {
+func (s *sqliteStore) SearchSimilar(ctx context.Context, embedding []float32, limit int) ([]models.Knowledge, error) {
 	if limit <= 0 {
 		limit = 10
 	}
 
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, project_id, level, created_at, content, source_ids, embedding, event_type, importance, COALESCE(usage_count, 0) FROM knowledge WHERE project_id = ?`,
-		projectID,
+		`SELECT id, level, created_at, content, source_ids, embedding, event_type, importance, COALESCE(usage_count, 0) FROM knowledge`,
 	)
 	if err != nil {
 		return nil, err
@@ -296,7 +407,7 @@ func (s *sqliteStore) UpdateSourceIDs(ctx context.Context, id string, sourceIDs 
 	return err
 }
 
-func (s *sqliteStore) List(ctx context.Context, projectID string, level models.KnowledgeLevel, limit int) ([]models.Knowledge, error) {
+func (s *sqliteStore) List(ctx context.Context, level models.KnowledgeLevel, limit int) ([]models.Knowledge, error) {
 	if limit <= 0 {
 		limit = 50
 	}
@@ -304,13 +415,13 @@ func (s *sqliteStore) List(ctx context.Context, projectID string, level models.K
 	var err error
 	if level == "" {
 		rows, err = s.db.QueryContext(ctx,
-			`SELECT id, project_id, level, created_at, content, source_ids, embedding, event_type, importance, COALESCE(usage_count, 0) FROM knowledge WHERE project_id = ? ORDER BY created_at DESC LIMIT ?`,
-			projectID, limit,
+			`SELECT id, level, created_at, content, source_ids, embedding, event_type, importance, COALESCE(usage_count, 0) FROM knowledge ORDER BY created_at DESC LIMIT ?`,
+			limit,
 		)
 	} else {
 		rows, err = s.db.QueryContext(ctx,
-			`SELECT id, project_id, level, created_at, content, source_ids, embedding, event_type, importance, COALESCE(usage_count, 0) FROM knowledge WHERE project_id = ? AND level = ? ORDER BY created_at DESC LIMIT ?`,
-			projectID, string(level), limit,
+			`SELECT id, level, created_at, content, source_ids, embedding, event_type, importance, COALESCE(usage_count, 0) FROM knowledge WHERE level = ? ORDER BY created_at DESC LIMIT ?`,
+			string(level), limit,
 		)
 	}
 	if err != nil {
@@ -326,22 +437,22 @@ func (s *sqliteStore) DeleteKnowledge(ctx context.Context, id string) error {
 	return err
 }
 
-func (s *sqliteStore) ClearProject(ctx context.Context, projectID string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM knowledge WHERE project_id = ?`, projectID)
+func (s *sqliteStore) Clear(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM knowledge`)
 	if err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx, `DELETE FROM events WHERE project_id = ?`, projectID)
+	_, err = s.db.ExecContext(ctx, `DELETE FROM events`)
 	return err
 }
 
-func (s *sqliteStore) Stats(ctx context.Context, projectID string) (*ProjectStats, error) {
+func (s *sqliteStore) Stats(ctx context.Context) (*ProjectStats, error) {
 	var stats ProjectStats
-	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM knowledge WHERE project_id = ?`, projectID).Scan(&stats.KnowledgeCount)
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM knowledge`).Scan(&stats.KnowledgeCount)
 	if err != nil {
 		return nil, err
 	}
-	err = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM events WHERE project_id = ?`, projectID).Scan(&stats.EventCount)
+	err = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM events`).Scan(&stats.EventCount)
 	if err != nil {
 		return nil, err
 	}
@@ -357,7 +468,7 @@ func scanEvents(rows *sql.Rows) ([]models.Event, error) {
 	for rows.Next() {
 		var e models.Event
 		var ts string
-		if err := rows.Scan(&e.ID, &e.ProjectID, &e.SessionID, &e.ServerSession, &ts, &e.Type, &e.Source, &e.Content); err != nil {
+		if err := rows.Scan(&e.ID, &e.SessionID, &e.ServerSession, &ts, &e.Type, &e.Source, &e.Content); err != nil {
 			return nil, err
 		}
 		e.Timestamp, _ = time.Parse(time.RFC3339Nano, ts)
@@ -371,7 +482,7 @@ func (s *sqliteStore) EventsBySession(ctx context.Context, sessionID string, lim
 		limit = 100
 	}
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, project_id, session_id, server_session, timestamp, type, source, content FROM events WHERE session_id = ? ORDER BY timestamp ASC LIMIT ?`,
+		`SELECT id, session_id, server_session, timestamp, type, source, content FROM events WHERE session_id = ? ORDER BY timestamp ASC LIMIT ?`,
 		sessionID, limit,
 	)
 	if err != nil {
@@ -386,7 +497,7 @@ func (s *sqliteStore) EventsByServerSession(ctx context.Context, serverSession s
 		limit = 100
 	}
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, project_id, session_id, server_session, timestamp, type, source, content FROM events WHERE server_session = ? ORDER BY timestamp ASC LIMIT ?`,
+		`SELECT id, session_id, server_session, timestamp, type, source, content FROM events WHERE server_session = ? ORDER BY timestamp ASC LIMIT ?`,
 		serverSession, limit,
 	)
 	if err != nil {
@@ -396,35 +507,19 @@ func (s *sqliteStore) EventsByServerSession(ctx context.Context, serverSession s
 	return scanEvents(rows)
 }
 
-func (s *sqliteStore) UnobservedEvents(ctx context.Context, projectID string, limit int) ([]models.Event, error) {
+func (s *sqliteStore) UnobservedEvents(ctx context.Context, limit int) ([]models.Event, error) {
 	if limit <= 0 {
 		limit = 50
 	}
-	var rows *sql.Rows
-	var err error
-	if projectID == "" || projectID == "*" {
-		rows, err = s.db.QueryContext(ctx, `
-			SELECT e.id, e.project_id, e.session_id, e.server_session, e.timestamp, e.type, e.source, e.content
-			FROM events e
-			WHERE NOT EXISTS (
-				SELECT 1 FROM knowledge k
-				WHERE k.source_ids LIKE '%' || e.id || '%'
-			)
-			ORDER BY e.timestamp DESC
-			LIMIT ?`, limit)
-	} else {
-		rows, err = s.db.QueryContext(ctx, `
-			SELECT e.id, e.project_id, e.session_id, e.server_session, e.timestamp, e.type, e.source, e.content
-			FROM events e
-			WHERE e.project_id = ?
-			  AND NOT EXISTS (
-				SELECT 1 FROM knowledge k
-				WHERE k.project_id = e.project_id
-				  AND k.source_ids LIKE '%' || e.id || '%'
-			  )
-			ORDER BY e.timestamp DESC
-			LIMIT ?`, projectID, limit)
-	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT e.id, e.session_id, e.server_session, e.timestamp, e.type, e.source, e.content
+		FROM events e
+		WHERE NOT EXISTS (
+			SELECT 1 FROM knowledge k
+			WHERE k.source_ids LIKE '%' || e.id || '%'
+		)
+		ORDER BY e.timestamp DESC
+		LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -432,36 +527,22 @@ func (s *sqliteStore) UnobservedEvents(ctx context.Context, projectID string, li
 	return scanEvents(rows)
 }
 
-func (s *sqliteStore) GC(ctx context.Context, projectID string, before string) (*GCResult, error) {
+func (s *sqliteStore) GC(ctx context.Context, before string) (*GCResult, error) {
 	var result GCResult
 
-	if projectID == "" || projectID == "*" {
-		del, err := s.db.ExecContext(ctx, `DELETE FROM knowledge WHERE created_at < ?`, before)
-		if err != nil {
-			return nil, err
-		}
-		result.KnowledgeDeleted, _ = del.RowsAffected()
-
-		del, err = s.db.ExecContext(ctx, `DELETE FROM events WHERE timestamp < ?`, before)
-		if err != nil {
-			return nil, err
-		}
-		result.EventsDeleted, _ = del.RowsAffected()
-	} else {
-		del, err := s.db.ExecContext(ctx, `DELETE FROM knowledge WHERE project_id = ? AND created_at < ?`, projectID, before)
-		if err != nil {
-			return nil, err
-		}
-		result.KnowledgeDeleted, _ = del.RowsAffected()
-
-		del, err = s.db.ExecContext(ctx, `DELETE FROM events WHERE project_id = ? AND timestamp < ?`, projectID, before)
-		if err != nil {
-			return nil, err
-		}
-		result.EventsDeleted, _ = del.RowsAffected()
+	del, err := s.db.ExecContext(ctx, `DELETE FROM knowledge WHERE created_at < ?`, before)
+	if err != nil {
+		return nil, err
 	}
+	result.KnowledgeDeleted, _ = del.RowsAffected()
 
-	orphans, err := s.deleteOrphanDerived(ctx, projectID)
+	del, err = s.db.ExecContext(ctx, `DELETE FROM events WHERE timestamp < ?`, before)
+	if err != nil {
+		return nil, err
+	}
+	result.EventsDeleted, _ = del.RowsAffected()
+
+	orphans, err := s.deleteOrphanDerived(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -470,8 +551,8 @@ func (s *sqliteStore) GC(ctx context.Context, projectID string, before string) (
 	return &result, nil
 }
 
-func (s *sqliteStore) deleteOrphanDerived(ctx context.Context, projectID string) (int64, error) {
-	idRows, err := s.db.QueryContext(ctx, `SELECT id FROM knowledge WHERE project_id = ?`, projectID)
+func (s *sqliteStore) deleteOrphanDerived(ctx context.Context) (int64, error) {
+	idRows, err := s.db.QueryContext(ctx, `SELECT id FROM knowledge`)
 	if err != nil {
 		return 0, fmt.Errorf("query existing ids: %w", err)
 	}
@@ -490,8 +571,7 @@ func (s *sqliteStore) deleteOrphanDerived(ctx context.Context, projectID string)
 	}
 
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, source_ids FROM knowledge WHERE project_id = ? AND level IN ('lesson', 'pattern')`,
-		projectID,
+		`SELECT id, source_ids FROM knowledge WHERE level IN ('lesson', 'pattern')`,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("query derived: %w", err)
@@ -548,8 +628,8 @@ func (s *sqliteStore) deleteOrphanDerived(ctx context.Context, projectID string)
 
 func (s *sqliteStore) LogRetrieval(ctx context.Context, log *models.RetrievalLog) error {
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO retrieval_log (id, project_id, session_id, timestamp, task, results, used_ids) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		log.ID, log.ProjectID, log.SessionID, log.Timestamp.Format(time.RFC3339Nano), log.Task, log.Results, log.UsedIDs,
+		`INSERT INTO retrieval_log (id, session_id, timestamp, task, results, used_ids) VALUES (?, ?, ?, ?, ?, ?)`,
+		log.ID, log.SessionID, log.Timestamp.Format(time.RFC3339Nano), log.Task, log.Results, log.UsedIDs,
 	)
 	return err
 }

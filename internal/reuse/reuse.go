@@ -38,7 +38,7 @@ func (e *Engine) Query(ctx context.Context, req models.ReuseRequest) (*models.Re
 	// Phase 1: vector search
 	embeddings, embedErr := e.embedder.Embed(ctx, []string{req.Task})
 	if embedErr == nil && len(embeddings) > 0 {
-		k, err := e.store.SearchSimilar(ctx, req.ProjectID, embeddings[0], limit)
+		k, err := e.store.SearchSimilar(ctx, embeddings[0], limit)
 		if err == nil {
 			knowledge = k
 		}
@@ -47,7 +47,7 @@ func (e *Engine) Query(ctx context.Context, req models.ReuseRequest) (*models.Re
 	// Phase 2: supplement with keyword results if we don't have enough
 	if len(knowledge) < limit {
 		needed := limit - len(knowledge)
-		k, err := e.store.Search(ctx, req.ProjectID, req.Task, needed)
+		k, err := e.store.Search(ctx, req.Task, needed)
 		if err != nil {
 			return nil, fmt.Errorf("search: %w", err)
 		}

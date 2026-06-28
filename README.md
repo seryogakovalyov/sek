@@ -91,7 +91,6 @@ go build -o sekctl ./cmd/sekctl/
 | `--llm-model` | `gpt-4o` | Имя модели для chat completions |
 | `--llm-base-url` | — | Кастомный endpoint (обязателен для локальных серверов) |
 | `--project` | `cwd` | Директория проекта (там создаётся `.sek/`); `_global` для глобального стора |
-| `--project-id` | — | ID проекта для global store (обязателен с `--project _global`) |
 | `--data-dir` | `~/.sek` | Директория данных (используется при `--project _global`) |
 | `--http` | — | Streamable HTTP адрес (напр. `:9090`); без флага — stdio |
 | `--config` | `.sek/config.json` | Путь к конфиг-файлу; если есть — флаги переопределяют его поля |
@@ -132,18 +131,19 @@ go build -o sekctl ./cmd/sekctl/
 
 **Per-project (по умолчанию):** `--project /path` или просто `sekd`
 - Store: `/path/.sek/store.db`
-- `project_id` всегда "default" — физическая изоляция между проектами
+- приватная память конкретного проекта
+- изоляция между проектами физическая: разные проекты используют разные файлы БД
 
-**Global store:** `--project _global --project-id my-project`
-- Store: `~/.sek/store.db` — общий для всех проектов на машине
-- `--project-id` обязателен — разделяет опыт разных проектов внутри одного файла
-- Несколько агентов на одном проекте должны указывать одинаковый `--project-id`
+**Global store:** `--project _global`
+- Store: `~/.sek/store.db`
+- одна общая память машины без разделения на проекты
+- подходит для локальных LLM-настроек, системных gotchas, общих предпочтений и reusable-паттернов
 
 **sekctl** поддерживает те же флаги:
-- `sekctl status --project _global --project-id my-project` — статус конкретного проекта в global
-- `sekctl list --project _global --project-id my-project` — список знаний
-- `sekctl gc --project _global --project-id my-project` — GC по проекту
-- `sekctl gc --project _global --all` — GC по всем проектам
+- `sekctl status` — статус текущего project store
+- `sekctl list` — знания текущего project store
+- `sekctl status --project _global` — статус global store
+- `sekctl list --project _global` — знания global store
 
 **Важно:** если используешь локальный llama.cpp без ключа:
 ```bash
@@ -294,7 +294,6 @@ sekctl rm obs-abc123
 # GC: удалить записи старше 30 дней
 sekctl gc --older-than 720h
 sekctl gc --older-than 30d --dry-run  # посмотреть без удаления
-sekctl gc --all                       # все проекты в global store
 
 # очистить всё (с подтверждением)
 sekctl prune
@@ -314,7 +313,7 @@ sekctl list --project _global
 | `list` | `--project`, `--level`, `--limit` | Список знаний в таблице |
 | `log` | `--project`, `--limit` | Список событий |
 | `rm <id>` | `--project` | Удалить знание по ID |
-| `gc` | `--project`, `--older-than`, `--dry-run`, `--all` | GC по TTL |
+| `gc` | `--project`, `--older-than`, `--before`, `--dry-run` | GC по TTL или абсолютному cutoff |
 | `status` | `--project` | Статистика (счётчики, размер БД) |
 | `prune` | `--project`, `--force` | Удалить все данные проекта |
 | `query <task>` | `--project`, `--llm-*`, `--max-tokens`, `--max-entries` | Поиск опыта (как MCP tool) |

@@ -53,7 +53,7 @@ func (p *Pipeline) Process(ctx context.Context, events []models.Event) error {
 
 		p.obsCount++
 		if p.obsCount%promoteAfter == 0 {
-			if err := p.promote(ctx, obs.ProjectID); err != nil {
+			if err := p.promote(ctx); err != nil {
 				log.Printf("promote warning: %v", err)
 			}
 		}
@@ -66,7 +66,7 @@ func (p *Pipeline) embedAndSaveDedup(ctx context.Context, k *models.Knowledge) (
 	if err == nil && len(embeddings) > 0 {
 		k.Embedding = embeddings[0]
 
-		dups, err := p.store.FindSimilar(ctx, k.ProjectID, k.Embedding, dedupThreshold, 1)
+		dups, err := p.store.FindSimilar(ctx, k.Embedding, dedupThreshold, 1)
 		if err == nil && len(dups) > 0 {
 			existing := dups[0]
 			merged := mergeSourceIDs(existing.SourceIDs, k.SourceIDs)
@@ -101,8 +101,8 @@ func mergeSourceIDs(a, b []string) []string {
 	return result
 }
 
-func (p *Pipeline) promote(ctx context.Context, projectID string) error {
-	observations, err := p.store.List(ctx, projectID, models.LevelObservation, 50)
+func (p *Pipeline) promote(ctx context.Context) error {
+	observations, err := p.store.List(ctx, models.LevelObservation, 50)
 	if err != nil {
 		return fmt.Errorf("list observations: %w", err)
 	}
@@ -110,7 +110,7 @@ func (p *Pipeline) promote(ctx context.Context, projectID string) error {
 		return nil
 	}
 
-	lessons, err := p.store.List(ctx, projectID, models.LevelLesson, 50)
+	lessons, err := p.store.List(ctx, models.LevelLesson, 50)
 	if err != nil {
 		return fmt.Errorf("list lessons: %w", err)
 	}
@@ -123,12 +123,12 @@ func (p *Pipeline) promote(ctx context.Context, projectID string) error {
 		if len(cluster) < promoteAfter {
 			continue
 		}
-		if err := p.composeLesson(ctx, cluster, projectID); err != nil {
+		if err := p.composeLesson(ctx, cluster); err != nil {
 			log.Printf("compose lesson warning: %v", err)
 		}
 	}
 
-	patterns, err := p.store.List(ctx, projectID, models.LevelPattern, 50)
+	patterns, err := p.store.List(ctx, models.LevelPattern, 50)
 	if err != nil {
 		return fmt.Errorf("list patterns: %w", err)
 	}
@@ -141,7 +141,7 @@ func (p *Pipeline) promote(ctx context.Context, projectID string) error {
 		if len(cluster) < promoteAfter {
 			continue
 		}
-		if err := p.composePattern(ctx, cluster, projectID); err != nil {
+		if err := p.composePattern(ctx, cluster); err != nil {
 			log.Printf("compose pattern warning: %v", err)
 		}
 	}
@@ -175,7 +175,6 @@ Return only the observation text, 1-3 sentences, nothing else.`},
 	}
 	return &models.Knowledge{
 		ID:        fmt.Sprintf("obs-%s", event.ID),
-		ProjectID: event.ProjectID,
 		Level:     models.LevelObservation,
 		CreatedAt: time.Now(),
 		Content:   redact.Secrets(resp.Content),
@@ -285,7 +284,7 @@ func cosineSimilarity(a, b []float32) float64 {
 	return dot / (math.Sqrt(na) * math.Sqrt(nb))
 }
 
-func (p *Pipeline) composeLesson(ctx context.Context, cluster []models.Knowledge, projectID string) error {
+func (p *Pipeline) composeLesson(ctx context.Context, cluster []models.Knowledge) error {
 	content := ""
 	for i, obs := range cluster {
 		content += fmt.Sprintf("%d. %s\n", i+1, obs.Content)
@@ -319,7 +318,6 @@ func (p *Pipeline) composeLesson(ctx context.Context, cluster []models.Knowledge
 
 	lesson := &models.Knowledge{
 		ID:         fmt.Sprintf("lesson-%d", time.Now().UnixNano()),
-		ProjectID:  projectID,
 		Level:      models.LevelLesson,
 		CreatedAt:  time.Now(),
 		Content:    redact.Secrets(resp.Content),
@@ -337,7 +335,7 @@ func (p *Pipeline) composeLesson(ctx context.Context, cluster []models.Knowledge
 	return p.store.Save(ctx, lesson)
 }
 
-func (p *Pipeline) composePattern(ctx context.Context, cluster []models.Knowledge, projectID string) error {
+func (p *Pipeline) composePattern(ctx context.Context, cluster []models.Knowledge) error {
 	content := ""
 	for i, lesson := range cluster {
 		content += fmt.Sprintf("%d. %s\n", i+1, lesson.Content)
@@ -371,7 +369,6 @@ func (p *Pipeline) composePattern(ctx context.Context, cluster []models.Knowledg
 
 	pattern := &models.Knowledge{
 		ID:         fmt.Sprintf("pattern-%d", time.Now().UnixNano()),
-		ProjectID:  projectID,
 		Level:      models.LevelPattern,
 		CreatedAt:  time.Now(),
 		Content:    redact.Secrets(resp.Content),
@@ -404,23 +401,13 @@ func SessionDigest(ctx context.Context, st store.Store, provider llm.Provider, e
 		return
 	}
 
-	byProject := make(map[string][]models.Event)
-	for _, e := range events {
-		byProject[e.ProjectID] = append(byProject[e.ProjectID], e)
+	if ctx.Err() != nil {
+		return
 	}
-
-	for projectID, evts := range byProject {
-		if len(evts) < 3 {
-			continue
-		}
-		if ctx.Err() != nil {
-			return
-		}
-		makeDigest(ctx, st, provider, embedder, modelName, projectID, evts)
-	}
+	makeDigest(ctx, st, provider, embedder, modelName, events)
 }
 
-func makeDigest(ctx context.Context, st store.Store, provider llm.Provider, embedder llm.Embedder, modelName, projectID string, events []models.Event) {
+func makeDigest(ctx context.Context, st store.Store, provider llm.Provider, embedder llm.Embedder, modelName string, events []models.Event) {
 	content := ""
 	for i, e := range events {
 		content += fmt.Sprintf("%d. [%s] %s: %s\n", i+1, e.Type, e.Source, truncateString(redact.Secrets(e.Content), 200))
@@ -444,7 +431,7 @@ func makeDigest(ctx context.Context, st store.Store, provider llm.Provider, embe
 		Temperature: 0.3,
 	})
 	if err != nil {
-		log.Printf("session digest [%s]: llm: %v", projectID, err)
+		log.Printf("session digest: llm: %v", err)
 		return
 	}
 	if resp.Content == "" {
@@ -458,7 +445,6 @@ func makeDigest(ctx context.Context, st store.Store, provider llm.Provider, embe
 
 	obs := &models.Knowledge{
 		ID:         fmt.Sprintf("digest-%d", time.Now().UnixNano()),
-		ProjectID:  projectID,
 		Level:      models.LevelLesson,
 		CreatedAt:  time.Now(),
 		Content:    redact.Secrets(resp.Content),
@@ -473,10 +459,10 @@ func makeDigest(ctx context.Context, st store.Store, provider llm.Provider, embe
 	}
 
 	if err := st.Save(ctx, obs); err != nil {
-		log.Printf("session digest [%s]: save: %v", projectID, err)
+		log.Printf("session digest: save: %v", err)
 		return
 	}
-	log.Printf("session digest [%s]: saved %s (%d events)", projectID, obs.ID, len(events))
+	log.Printf("session digest: saved %s (%d events)", obs.ID, len(events))
 }
 
 func truncateString(s string, maxLen int) string {

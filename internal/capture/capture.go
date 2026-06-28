@@ -19,10 +19,9 @@ func NewService(s store.EventStore) *Service {
 	return &Service{store: s}
 }
 
-func (s *Service) Capture(ctx context.Context, projectID, sessionID, serverSession string, eventType models.EventType, source, content string) (*models.Event, error) {
+func (s *Service) Capture(ctx context.Context, sessionID, serverSession string, eventType models.EventType, source, content string) (*models.Event, error) {
 	event := &models.Event{
 		ID:            uuid.New().String(),
-		ProjectID:     projectID,
 		SessionID:     sessionID,
 		ServerSession: serverSession,
 		Timestamp:     time.Now(),

@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"os"
 	"strings"
@@ -34,7 +35,6 @@ func TestSaveAndList(t *testing.T) {
 
 	k := &models.Knowledge{
 		ID:         "test-1",
-		ProjectID:  "testproj",
 		Level:      models.LevelObservation,
 		CreatedAt:  time.Now(),
 		Content:    "test observation",
@@ -46,7 +46,7 @@ func TestSaveAndList(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	list, err := s.List(ctx, "testproj", "", 10)
+	list, err := s.List(ctx, "", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,6 @@ func TestAppendRedactsSecrets(t *testing.T) {
 
 	err := s.Append(ctx, &models.Event{
 		ID:        "event-secret",
-		ProjectID: "p",
 		SessionID: "s",
 		Timestamp: time.Now(),
 		Type:      models.EventFailure,
@@ -79,7 +78,7 @@ func TestAppendRedactsSecrets(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	events, err := s.Query(ctx, "p", 10)
+	events, err := s.Query(ctx, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +95,6 @@ func TestSaveRedactsSecrets(t *testing.T) {
 
 	err := s.Save(ctx, &models.Knowledge{
 		ID:        "knowledge-secret",
-		ProjectID: "p",
 		Level:     models.LevelObservation,
 		CreatedAt: time.Now(),
 		Content:   "use api_key=sk-secret123456 with https://user:pass@example.test/path",
@@ -105,7 +103,7 @@ func TestSaveRedactsSecrets(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	knowledge, err := s.List(ctx, "p", "", 10)
+	knowledge, err := s.List(ctx, "", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +137,6 @@ func TestFindSimilar(t *testing.T) {
 
 	k1 := &models.Knowledge{
 		ID:         "obs-1",
-		ProjectID:  "testproj",
 		Level:      models.LevelObservation,
 		CreatedAt:  time.Now(),
 		Content:    "first observation",
@@ -152,7 +149,6 @@ func TestFindSimilar(t *testing.T) {
 	emb2 := []float32{-0.5, -0.5, -0.5, -0.5}
 	k2 := &models.Knowledge{
 		ID:         "obs-2",
-		ProjectID:  "testproj",
 		Level:      models.LevelObservation,
 		CreatedAt:  time.Now(),
 		Content:    "second observation",
@@ -168,7 +164,7 @@ func TestFindSimilar(t *testing.T) {
 		}
 	}
 
-	similar, err := s.FindSimilar(ctx, "testproj", emb, 0.9, 10)
+	similar, err := s.FindSimilar(ctx, emb, 0.9, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +183,6 @@ func TestUpdateSourceIDs(t *testing.T) {
 
 	k := &models.Knowledge{
 		ID:        "obs-1",
-		ProjectID: "testproj",
 		Level:     models.LevelObservation,
 		CreatedAt: time.Now(),
 		Content:   "test",
@@ -201,7 +196,7 @@ func TestUpdateSourceIDs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	list, err := s.List(ctx, "testproj", "", 10)
+	list, err := s.List(ctx, "", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,14 +212,12 @@ func TestFilterByLevel(t *testing.T) {
 
 	obs := &models.Knowledge{
 		ID:        "obs-1",
-		ProjectID: "p",
 		Level:     models.LevelObservation,
 		CreatedAt: time.Now(),
 		Content:   "an observation",
 	}
 	lesson := &models.Knowledge{
 		ID:        "lesson-1",
-		ProjectID: "p",
 		Level:     models.LevelLesson,
 		CreatedAt: time.Now(),
 		Content:   "a lesson",
@@ -236,7 +229,7 @@ func TestFilterByLevel(t *testing.T) {
 		}
 	}
 
-	all, err := s.List(ctx, "p", "", 10)
+	all, err := s.List(ctx, "", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,7 +237,7 @@ func TestFilterByLevel(t *testing.T) {
 		t.Fatalf("expected 2, got %d", len(all))
 	}
 
-	lessons, err := s.List(ctx, "p", models.LevelLesson, 10)
+	lessons, err := s.List(ctx, models.LevelLesson, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -260,7 +253,6 @@ func TestDeleteKnowledge(t *testing.T) {
 
 	k := &models.Knowledge{
 		ID:        "to-delete",
-		ProjectID: "p",
 		Level:     models.LevelObservation,
 		CreatedAt: time.Now(),
 		Content:   "delete me",
@@ -273,7 +265,7 @@ func TestDeleteKnowledge(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	list, err := s.List(ctx, "p", "", 10)
+	list, err := s.List(ctx, "", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -287,10 +279,8 @@ func TestUnobservedEvents(t *testing.T) {
 	defer s.Close()
 	ctx := context.Background()
 
-	projID := "p"
-
-	e1 := &models.Event{ID: "e-1", ProjectID: projID, SessionID: "s1", Type: models.EventRequest, Source: "test", Content: "event 1", Timestamp: time.Now()}
-	e2 := &models.Event{ID: "e-2", ProjectID: projID, SessionID: "s1", Type: models.EventFailure, Source: "test", Content: "event 2", Timestamp: time.Now()}
+	e1 := &models.Event{ID: "e-1", SessionID: "s1", Type: models.EventRequest, Source: "test", Content: "event 1", Timestamp: time.Now()}
+	e2 := &models.Event{ID: "e-2", SessionID: "s1", Type: models.EventFailure, Source: "test", Content: "event 2", Timestamp: time.Now()}
 
 	for _, e := range []*models.Event{e1, e2} {
 		if err := s.Append(ctx, e); err != nil {
@@ -300,7 +290,6 @@ func TestUnobservedEvents(t *testing.T) {
 
 	obs := &models.Knowledge{
 		ID:        "obs-1",
-		ProjectID: projID,
 		Level:     models.LevelObservation,
 		CreatedAt: time.Now(),
 		Content:   "observation from event 1",
@@ -310,7 +299,7 @@ func TestUnobservedEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	unobserved, err := s.UnobservedEvents(ctx, projID, 10)
+	unobserved, err := s.UnobservedEvents(ctx, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -322,16 +311,14 @@ func TestUnobservedEvents(t *testing.T) {
 	}
 }
 
-func TestClearProject(t *testing.T) {
+func TestClear(t *testing.T) {
 	s := newTestStore(t)
 	defer s.Close()
 	ctx := context.Background()
 
-	projID := "myproj"
 	for i := 0; i < 3; i++ {
 		k := &models.Knowledge{
 			ID:        fmt.Sprintf("k-%d", i),
-			ProjectID: projID,
 			Level:     models.LevelObservation,
 			CreatedAt: time.Now(),
 			Content:   fmt.Sprintf("item %d", i),
@@ -341,7 +328,6 @@ func TestClearProject(t *testing.T) {
 		}
 		ev := &models.Event{
 			ID:        fmt.Sprintf("e-%d", i),
-			ProjectID: projID,
 			SessionID: "test-session",
 			Type:      models.EventRequest,
 			Source:    "test",
@@ -353,11 +339,11 @@ func TestClearProject(t *testing.T) {
 		}
 	}
 
-	if err := s.ClearProject(ctx, projID); err != nil {
+	if err := s.Clear(ctx); err != nil {
 		t.Fatal(err)
 	}
 
-	stats, err := s.Stats(ctx, projID)
+	stats, err := s.Stats(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -366,5 +352,86 @@ func TestClearProject(t *testing.T) {
 	}
 	if stats.EventCount != 0 {
 		t.Fatalf("expected 0 events, got %d", stats.EventCount)
+	}
+}
+
+func TestMigrateDropsLegacyProjectIDColumns(t *testing.T) {
+	f, err := os.CreateTemp("", "sek-legacy-*.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	t.Cleanup(func() { os.Remove(f.Name()) })
+
+	db, err := sql.Open("sqlite", f.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`
+		CREATE TABLE events (
+			id TEXT PRIMARY KEY,
+			project_id TEXT NOT NULL,
+			session_id TEXT NOT NULL,
+			server_session TEXT DEFAULT '',
+			timestamp TEXT NOT NULL,
+			type TEXT NOT NULL,
+			source TEXT NOT NULL,
+			content TEXT NOT NULL
+		);
+		CREATE TABLE knowledge (
+			id TEXT PRIMARY KEY,
+			project_id TEXT NOT NULL,
+			level TEXT NOT NULL,
+			created_at TEXT NOT NULL,
+			content TEXT NOT NULL,
+			source_ids TEXT DEFAULT '[]',
+			embedding BLOB,
+			event_type TEXT DEFAULT '',
+			importance REAL DEFAULT 0.5,
+			usage_count INTEGER DEFAULT 0
+		);
+		CREATE TABLE retrieval_log (
+			id TEXT PRIMARY KEY,
+			project_id TEXT NOT NULL,
+			session_id TEXT NOT NULL,
+			timestamp TEXT NOT NULL,
+			task TEXT NOT NULL,
+			results TEXT DEFAULT '[]',
+			used_ids TEXT DEFAULT '[]'
+		);
+		INSERT INTO events (id, project_id, session_id, timestamp, type, source, content)
+			VALUES ('e1', 'p', 's', '2026-06-28T00:00:00Z', 'request', 'test', 'event');
+		INSERT INTO knowledge (id, project_id, level, created_at, content)
+			VALUES ('k1', 'p', 'observation', '2026-06-28T00:00:00Z', 'knowledge');
+		INSERT INTO retrieval_log (id, project_id, session_id, timestamp, task)
+			VALUES ('r1', 'p', 's', '2026-06-28T00:00:00Z', 'task');
+	`)
+	db.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := NewSQLite(f.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	for _, table := range []string{"events", "knowledge", "retrieval_log"} {
+		hasProjectID, err := tableHasColumn(s.(*sqliteStore).db, table, "project_id")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if hasProjectID {
+			t.Fatalf("%s still has project_id column", table)
+		}
+	}
+
+	stats, err := s.Stats(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.EventCount != 1 || stats.KnowledgeCount != 1 {
+		t.Fatalf("unexpected migrated counts: events=%d knowledge=%d", stats.EventCount, stats.KnowledgeCount)
 	}
 }

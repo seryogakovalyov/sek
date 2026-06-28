@@ -16,7 +16,6 @@ func TestCaptureRedactsSecretsBeforeStore(t *testing.T) {
 	svc := NewService(st)
 	event, err := svc.Capture(
 		context.Background(),
-		"p",
 		"s",
 		"ss",
 		models.EventFailure,
@@ -28,7 +27,7 @@ func TestCaptureRedactsSecretsBeforeStore(t *testing.T) {
 	}
 	assertNoSecret(t, event.Content)
 
-	events, err := st.Query(context.Background(), "p", 10)
+	events, err := st.Query(context.Background(), 10)
 	if err != nil {
 		t.Fatal(err)
 	}

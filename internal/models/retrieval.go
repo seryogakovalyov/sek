@@ -4,7 +4,6 @@ import "time"
 
 type RetrievalLog struct {
 	ID        string    `json:"id"`
-	ProjectID string    `json:"project_id"`
 	SessionID string    `json:"session_id"`
 	Timestamp time.Time `json:"timestamp"`
 	Task      string    `json:"task"`
