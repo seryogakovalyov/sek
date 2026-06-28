@@ -21,7 +21,7 @@ import (
 	"github.com/anomalyco/sek/internal/trace"
 )
 
-func newMCPServer(st store.Store, provider llm.Provider, embedder llm.Embedder, modelName string, serverSessionID string) *server.MCPServer {
+func newMCPServer(st store.Store, provider llm.Provider, embedder llm.Embedder, modelName string, serverSessionID string, projectID string) *server.MCPServer {
 	captureSvc := capture.NewService(st)
 	distillPipe := distill.NewPipeline(provider, embedder, modelName, st)
 	reuseEngine := reuse.NewEngine(provider, embedder, st)
@@ -39,7 +39,7 @@ func newMCPServer(st store.Store, provider llm.Provider, embedder llm.Embedder, 
 			sessionID = serverSessionID
 		}
 
-		event, err := captureSvc.Capture(ctx, "default", sessionID, serverSessionID, models.EventType(eventType), source, content)
+		event, err := captureSvc.Capture(ctx, projectID, sessionID, serverSessionID, models.EventType(eventType), source, content)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("capture failed: %v", err)), nil
 		}
@@ -60,7 +60,7 @@ func newMCPServer(st store.Store, provider llm.Provider, embedder llm.Embedder, 
 		maxEntries := mcp.ParseInt(req, "max_entries", 10)
 
 		result, err := reuseEngine.Query(ctx, models.ReuseRequest{
-			ProjectID: "default",
+			ProjectID: projectID,
 			Task:      task,
 			Budget: models.ContextBudget{
 				MaxTokens:  maxTokens,
@@ -79,7 +79,7 @@ func newMCPServer(st store.Store, provider llm.Provider, embedder llm.Embedder, 
 			output = "No relevant experience found."
 		}
 
-		retrievalID := logRetrieval(ctx, st, "default", serverSessionID, task, result.Knowledge)
+		retrievalID := logRetrieval(ctx, st, projectID, serverSessionID, task, result.Knowledge)
 		if retrievalID != "" {
 			output = fmt.Sprintf("retrieval_id: %s\n\n%s", retrievalID, output)
 		}
@@ -109,7 +109,7 @@ func newMCPServer(st store.Store, provider llm.Provider, embedder llm.Embedder, 
 		level := mcp.ParseString(req, "level", "")
 		limit := mcp.ParseInt(req, "limit", 20)
 
-		knowledge, err := st.List(ctx, "default", models.KnowledgeLevel(level), limit)
+		knowledge, err := st.List(ctx, projectID, models.KnowledgeLevel(level), limit)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("list failed: %v", err)), nil
 		}
@@ -128,14 +128,14 @@ func newMCPServer(st store.Store, provider llm.Provider, embedder llm.Embedder, 
 	return s
 }
 
-func Serve(ctx context.Context, st store.Store, provider llm.Provider, embedder llm.Embedder, modelName string, serverSessionID string) error {
-	s := newMCPServer(st, provider, embedder, modelName, serverSessionID)
+func Serve(ctx context.Context, st store.Store, provider llm.Provider, embedder llm.Embedder, modelName string, serverSessionID string, projectID string) error {
+	s := newMCPServer(st, provider, embedder, modelName, serverSessionID, projectID)
 	log.Println("SEK MCP server starting (stdio)...")
 	return server.ServeStdio(s)
 }
 
-func ServeHTTP(ctx context.Context, st store.Store, provider llm.Provider, embedder llm.Embedder, modelName string, serverSessionID string, addr string) error {
-	s := newMCPServer(st, provider, embedder, modelName, serverSessionID)
+func ServeHTTP(ctx context.Context, st store.Store, provider llm.Provider, embedder llm.Embedder, modelName string, serverSessionID string, addr string, projectID string) error {
+	s := newMCPServer(st, provider, embedder, modelName, serverSessionID, projectID)
 	rawServer := server.NewStreamableHTTPServer(s,
 		server.WithEndpointPath("/"),
 		server.WithStateLess(true),

@@ -135,6 +135,7 @@ func cmdInit(args []string) {
 func cmdList(args []string) {
 	fs := flag.NewFlagSet("list", flag.ExitOnError)
 	project := fs.String("project", "", "project directory (default: cwd)")
+	projectID := fs.String("project-id", "", "project ID (required with --project _global)")
 	level := fs.String("level", "", "filter by level: observation, lesson, pattern")
 	limit := fs.Int("limit", 20, "max entries")
 	fs.Parse(args)
@@ -143,7 +144,7 @@ func cmdList(args []string) {
 	defer s.Close()
 
 	ctx := context.Background()
-	knowledge, err := s.List(ctx, defaultProjectID(*project), models.KnowledgeLevel(*level), *limit)
+	knowledge, err := s.List(ctx, resolveProjectID(*project, *projectID), models.KnowledgeLevel(*level), *limit)
 	if err != nil {
 		log.Fatalf("list: %v", err)
 	}
@@ -170,11 +171,19 @@ func defaultProjectID(projectDir string) string {
 	return "default"
 }
 
+func resolveProjectID(projectDir, projectID string) string {
+	if projectID != "" {
+		return projectID
+	}
+	return "default"
+}
+
 // --- log ---
 
 func cmdLog(args []string) {
 	fs := flag.NewFlagSet("log", flag.ExitOnError)
 	project := fs.String("project", "", "project directory (default: cwd)")
+	projectID := fs.String("project-id", "", "project ID (required with --project _global)")
 	limit := fs.Int("limit", 20, "max events")
 	fs.Parse(args)
 
@@ -182,7 +191,7 @@ func cmdLog(args []string) {
 	defer s.Close()
 
 	ctx := context.Background()
-	events, err := s.Query(ctx, defaultProjectID(*project), *limit)
+	events, err := s.Query(ctx, resolveProjectID(*project, *projectID), *limit)
 	if err != nil {
 		log.Fatalf("query events: %v", err)
 	}
@@ -232,18 +241,20 @@ func cmdRemove(args []string) {
 func cmdStatus(args []string) {
 	fs := flag.NewFlagSet("status", flag.ExitOnError)
 	project := fs.String("project", "", "project directory (default: cwd)")
+	projectID := fs.String("project-id", "", "project ID (required with --project _global)")
 	fs.Parse(args)
 
 	s := openStore(*project)
 	defer s.Close()
 
+	pid := resolveProjectID(*project, *projectID)
 	ctx := context.Background()
-	stats, err := s.Stats(ctx, defaultProjectID(*project))
+	stats, err := s.Stats(ctx, pid)
 	if err != nil {
 		log.Fatalf("stats: %v", err)
 	}
 
-	fmt.Printf("Project:     %s\n", defaultProjectID(*project))
+	fmt.Printf("Project:     %s\n", pid)
 	fmt.Printf("DB path:     %s\n", storePath(*project))
 	fmt.Printf("DB size:     %d KB\n", stats.DBSizeBytes/1024)
 	fmt.Printf("Events:      %d\n", stats.EventCount)
@@ -255,6 +266,7 @@ func cmdStatus(args []string) {
 func cmdGC(args []string) {
 	fs := flag.NewFlagSet("gc", flag.ExitOnError)
 	project := fs.String("project", "", "project directory (default: cwd)")
+	projectID := fs.String("project-id", "", "project ID (required with --project _global)")
 	allProjects := fs.Bool("all", false, "apply to all projects in the store")
 	olderThan := fs.String("older-than", "", "delete entries older than this duration (e.g. 720h, 168h)")
 	before := fs.String("before", "", "delete entries created before this timestamp (RFC3339 or YYYY-MM-DD)")
@@ -289,9 +301,9 @@ func cmdGC(args []string) {
 	}
 	cutoffStr := cutoff.Format(time.RFC3339Nano)
 
-	projectID := "*"
-	if !*allProjects {
-		projectID = defaultProjectID(*project)
+	pid := resolveProjectID(*project, *projectID)
+	if *allProjects {
+		pid = "*"
 	}
 
 	if *dryRun {
@@ -301,13 +313,13 @@ func cmdGC(args []string) {
 		} else {
 			fmt.Printf("Cutoff: %s (older than %s)\n", cutoff.Format("2006-01-02"), *olderThan)
 		}
-		fmt.Printf("Filter: %s\n", map[bool]string{true: "all projects", false: "project " + projectID}[*allProjects])
+		fmt.Printf("Filter: %s\n", map[bool]string{true: "all projects", false: "project " + pid}[*allProjects])
 		fmt.Println("(dry-run, no changes made)")
 		return
 	}
 
 	ctx := context.Background()
-	result, err := s.GC(ctx, projectID, cutoffStr)
+	result, err := s.GC(ctx, pid, cutoffStr)
 	if err != nil {
 		log.Fatalf("gc: %v", err)
 	}
@@ -364,6 +376,7 @@ func parseDuration(s string) time.Duration {
 func cmdPrune(args []string) {
 	fs := flag.NewFlagSet("prune", flag.ExitOnError)
 	project := fs.String("project", "", "project directory (default: cwd)")
+	projectID := fs.String("project-id", "", "project ID (required with --project _global)")
 	force := fs.Bool("force", false, "skip confirmation")
 	fs.Parse(args)
 
@@ -381,7 +394,7 @@ func cmdPrune(args []string) {
 	defer s.Close()
 
 	ctx := context.Background()
-	if err := s.ClearProject(ctx, defaultProjectID(*project)); err != nil {
+	if err := s.ClearProject(ctx, resolveProjectID(*project, *projectID)); err != nil {
 		log.Fatalf("prune: %v", err)
 	}
 	fmt.Println("project cleared")
@@ -392,6 +405,7 @@ func cmdPrune(args []string) {
 func cmdQuery(args []string) {
 	fs := flag.NewFlagSet("query", flag.ExitOnError)
 	project := fs.String("project", "", "project directory (default: cwd)")
+	projectID := fs.String("project-id", "", "project ID (required with --project _global)")
 	llmProvider := fs.String("llm-provider", "openai", "LLM provider")
 	llmModel := fs.String("llm-model", "gpt-4o", "LLM model")
 	llmKey := fs.String("llm-key", "", "LLM API key")
@@ -430,7 +444,7 @@ func cmdQuery(args []string) {
 	engine := reuse.NewEngine(provider, embedder, s)
 	ctx := context.Background()
 	result, err := engine.Query(ctx, models.ReuseRequest{
-		ProjectID: defaultProjectID(*project),
+		ProjectID: resolveProjectID(*project, *projectID),
 		Task:      task,
 		Budget: models.ContextBudget{
 			MaxTokens:  *maxTokens,

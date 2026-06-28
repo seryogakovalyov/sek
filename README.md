@@ -91,6 +91,7 @@ go build -o sekctl ./cmd/sekctl/
 | `--llm-model` | `gpt-4o` | Имя модели для chat completions |
 | `--llm-base-url` | — | Кастомный endpoint (обязателен для локальных серверов) |
 | `--project` | `cwd` | Директория проекта (там создаётся `.sek/`); `_global` для глобального стора |
+| `--project-id` | — | ID проекта для global store (обязателен с `--project _global`) |
 | `--data-dir` | `~/.sek` | Директория данных (используется при `--project _global`) |
 | `--http` | — | Streamable HTTP адрес (напр. `:9090`); без флага — stdio |
 | `--config` | `.sek/config.json` | Путь к конфиг-файлу; если есть — флаги переопределяют его поля |
@@ -124,6 +125,25 @@ go build -o sekctl ./cmd/sekctl/
   }
 }
 ```
+
+### Режимы хранения
+
+Есть два режима:
+
+**Per-project (по умолчанию):** `--project /path` или просто `sekd`
+- Store: `/path/.sek/store.db`
+- `project_id` всегда "default" — физическая изоляция между проектами
+
+**Global store:** `--project _global --project-id my-project`
+- Store: `~/.sek/store.db` — общий для всех проектов на машине
+- `--project-id` обязателен — разделяет опыт разных проектов внутри одного файла
+- Несколько агентов на одном проекте должны указывать одинаковый `--project-id`
+
+**sekctl** поддерживает те же флаги:
+- `sekctl status --project _global --project-id my-project` — статус конкретного проекта в global
+- `sekctl list --project _global --project-id my-project` — список знаний
+- `sekctl gc --project _global --project-id my-project` — GC по проекту
+- `sekctl gc --project _global --all` — GC по всем проектам
 
 **Важно:** если используешь локальный llama.cpp без ключа:
 ```bash
