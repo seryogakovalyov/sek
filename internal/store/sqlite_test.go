@@ -1,0 +1,370 @@
+package store
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/anomalyco/sek/internal/models"
+)
+
+func newTestStore(t *testing.T) Store {
+	t.Helper()
+	f, err := os.CreateTemp("", "sek-test-*.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	t.Cleanup(func() { os.Remove(f.Name()) })
+
+	s, err := NewSQLite(f.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+func TestSaveAndList(t *testing.T) {
+	s := newTestStore(t)
+	defer s.Close()
+	ctx := context.Background()
+
+	k := &models.Knowledge{
+		ID:         "test-1",
+		ProjectID:  "testproj",
+		Level:      models.LevelObservation,
+		CreatedAt:  time.Now(),
+		Content:    "test observation",
+		SourceIDs:  []string{"evt-1"},
+		EventType:  models.EventFailure,
+		Importance: models.ImportanceHigh,
+	}
+	if err := s.Save(ctx, k); err != nil {
+		t.Fatal(err)
+	}
+
+	list, err := s.List(ctx, "testproj", "", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("expected 1, got %d", len(list))
+	}
+	if list[0].EventType != models.EventFailure {
+		t.Fatalf("expected EventType failure, got %s", list[0].EventType)
+	}
+	if list[0].Importance != models.ImportanceHigh {
+		t.Fatalf("expected ImportanceHigh, got %f", list[0].Importance)
+	}
+}
+
+func TestAppendRedactsSecrets(t *testing.T) {
+	s := newTestStore(t)
+	defer s.Close()
+	ctx := context.Background()
+
+	err := s.Append(ctx, &models.Event{
+		ID:        "event-secret",
+		ProjectID: "p",
+		SessionID: "s",
+		Timestamp: time.Now(),
+		Type:      models.EventFailure,
+		Source:    "test",
+		Content:   "request failed with token=abc123SECRET and bearer qwertyuiopasdfgh",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	events, err := s.Query(ctx, "p", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	assertRedacted(t, events[0].Content, "abc123SECRET", "qwertyuiopasdfgh")
+}
+
+func TestSaveRedactsSecrets(t *testing.T) {
+	s := newTestStore(t)
+	defer s.Close()
+	ctx := context.Background()
+
+	err := s.Save(ctx, &models.Knowledge{
+		ID:        "knowledge-secret",
+		ProjectID: "p",
+		Level:     models.LevelObservation,
+		CreatedAt: time.Now(),
+		Content:   "use api_key=sk-secret123456 with https://user:pass@example.test/path",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	knowledge, err := s.List(ctx, "p", "", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(knowledge) != 1 {
+		t.Fatalf("expected 1 knowledge entry, got %d", len(knowledge))
+	}
+	assertRedacted(t, knowledge[0].Content, "sk-secret123456", "user:pass")
+}
+
+func assertRedacted(t *testing.T, content string, leaked ...string) {
+	t.Helper()
+	for _, value := range leaked {
+		if strings.Contains(content, value) {
+			t.Fatalf("content leaked %q: %s", value, content)
+		}
+	}
+	if !strings.Contains(content, "[REDACTED]") {
+		t.Fatalf("expected redaction marker in %q", content)
+	}
+}
+
+func TestFindSimilar(t *testing.T) {
+	s := newTestStore(t)
+	defer s.Close()
+	ctx := context.Background()
+
+	emb := make([]float32, 4)
+	for i := range emb {
+		emb[i] = 0.5
+	}
+
+	k1 := &models.Knowledge{
+		ID:         "obs-1",
+		ProjectID:  "testproj",
+		Level:      models.LevelObservation,
+		CreatedAt:  time.Now(),
+		Content:    "first observation",
+		SourceIDs:  []string{"evt-1"},
+		Embedding:  emb,
+		EventType:  models.EventRequest,
+		Importance: models.ImportanceLow,
+	}
+
+	emb2 := []float32{-0.5, -0.5, -0.5, -0.5}
+	k2 := &models.Knowledge{
+		ID:         "obs-2",
+		ProjectID:  "testproj",
+		Level:      models.LevelObservation,
+		CreatedAt:  time.Now(),
+		Content:    "second observation",
+		SourceIDs:  []string{"evt-2"},
+		Embedding:  emb2,
+		EventType:  models.EventDecision,
+		Importance: 0.65,
+	}
+
+	for _, k := range []*models.Knowledge{k1, k2} {
+		if err := s.Save(ctx, k); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	similar, err := s.FindSimilar(ctx, "testproj", emb, 0.9, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(similar) != 1 {
+		t.Fatalf("expected 1 similar, got %d", len(similar))
+	}
+	if similar[0].ID != "obs-1" {
+		t.Fatalf("expected obs-1, got %s", similar[0].ID)
+	}
+}
+
+func TestUpdateSourceIDs(t *testing.T) {
+	s := newTestStore(t)
+	defer s.Close()
+	ctx := context.Background()
+
+	k := &models.Knowledge{
+		ID:        "obs-1",
+		ProjectID: "testproj",
+		Level:     models.LevelObservation,
+		CreatedAt: time.Now(),
+		Content:   "test",
+		SourceIDs: []string{"evt-1"},
+	}
+	if err := s.Save(ctx, k); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.UpdateSourceIDs(ctx, "obs-1", []string{"evt-1", "evt-2"}); err != nil {
+		t.Fatal(err)
+	}
+
+	list, err := s.List(ctx, "testproj", "", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list[0].SourceIDs) != 2 {
+		t.Fatalf("expected 2 source IDs, got %d", len(list[0].SourceIDs))
+	}
+}
+
+func TestFilterByLevel(t *testing.T) {
+	s := newTestStore(t)
+	defer s.Close()
+	ctx := context.Background()
+
+	obs := &models.Knowledge{
+		ID:        "obs-1",
+		ProjectID: "p",
+		Level:     models.LevelObservation,
+		CreatedAt: time.Now(),
+		Content:   "an observation",
+	}
+	lesson := &models.Knowledge{
+		ID:        "lesson-1",
+		ProjectID: "p",
+		Level:     models.LevelLesson,
+		CreatedAt: time.Now(),
+		Content:   "a lesson",
+	}
+
+	for _, k := range []*models.Knowledge{obs, lesson} {
+		if err := s.Save(ctx, k); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	all, err := s.List(ctx, "p", "", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 2 {
+		t.Fatalf("expected 2, got %d", len(all))
+	}
+
+	lessons, err := s.List(ctx, "p", models.LevelLesson, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lessons) != 1 {
+		t.Fatalf("expected 1 lesson, got %d", len(lessons))
+	}
+}
+
+func TestDeleteKnowledge(t *testing.T) {
+	s := newTestStore(t)
+	defer s.Close()
+	ctx := context.Background()
+
+	k := &models.Knowledge{
+		ID:        "to-delete",
+		ProjectID: "p",
+		Level:     models.LevelObservation,
+		CreatedAt: time.Now(),
+		Content:   "delete me",
+	}
+	if err := s.Save(ctx, k); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.DeleteKnowledge(ctx, "to-delete"); err != nil {
+		t.Fatal(err)
+	}
+
+	list, err := s.List(ctx, "p", "", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 0 {
+		t.Fatalf("expected 0 after delete, got %d", len(list))
+	}
+}
+
+func TestUnobservedEvents(t *testing.T) {
+	s := newTestStore(t)
+	defer s.Close()
+	ctx := context.Background()
+
+	projID := "p"
+
+	e1 := &models.Event{ID: "e-1", ProjectID: projID, SessionID: "s1", Type: models.EventRequest, Source: "test", Content: "event 1", Timestamp: time.Now()}
+	e2 := &models.Event{ID: "e-2", ProjectID: projID, SessionID: "s1", Type: models.EventFailure, Source: "test", Content: "event 2", Timestamp: time.Now()}
+
+	for _, e := range []*models.Event{e1, e2} {
+		if err := s.Append(ctx, e); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	obs := &models.Knowledge{
+		ID:        "obs-1",
+		ProjectID: projID,
+		Level:     models.LevelObservation,
+		CreatedAt: time.Now(),
+		Content:   "observation from event 1",
+		SourceIDs: []string{"e-1"},
+	}
+	if err := s.Save(ctx, obs); err != nil {
+		t.Fatal(err)
+	}
+
+	unobserved, err := s.UnobservedEvents(ctx, projID, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(unobserved) != 1 {
+		t.Fatalf("expected 1 unobserved event, got %d", len(unobserved))
+	}
+	if unobserved[0].ID != "e-2" {
+		t.Fatalf("expected e-2, got %s", unobserved[0].ID)
+	}
+}
+
+func TestClearProject(t *testing.T) {
+	s := newTestStore(t)
+	defer s.Close()
+	ctx := context.Background()
+
+	projID := "myproj"
+	for i := 0; i < 3; i++ {
+		k := &models.Knowledge{
+			ID:        fmt.Sprintf("k-%d", i),
+			ProjectID: projID,
+			Level:     models.LevelObservation,
+			CreatedAt: time.Now(),
+			Content:   fmt.Sprintf("item %d", i),
+		}
+		if err := s.Save(ctx, k); err != nil {
+			t.Fatal(err)
+		}
+		ev := &models.Event{
+			ID:        fmt.Sprintf("e-%d", i),
+			ProjectID: projID,
+			SessionID: "test-session",
+			Type:      models.EventRequest,
+			Source:    "test",
+			Content:   fmt.Sprintf("event %d", i),
+			Timestamp: time.Now(),
+		}
+		if err := s.Append(ctx, ev); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := s.ClearProject(ctx, projID); err != nil {
+		t.Fatal(err)
+	}
+
+	stats, err := s.Stats(ctx, projID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.KnowledgeCount != 0 {
+		t.Fatalf("expected 0 knowledge, got %d", stats.KnowledgeCount)
+	}
+	if stats.EventCount != 0 {
+		t.Fatalf("expected 0 events, got %d", stats.EventCount)
+	}
+}

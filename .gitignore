@@ -1,0 +1,13 @@
+/.sek/
+/sekd
+/sekctl
+
+# Go build/test artifacts
+*.test
+coverage.out
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+*.swp
+*.swo

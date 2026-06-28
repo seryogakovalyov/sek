@@ -1,0 +1,30 @@
+[
+  {
+    "name": "codex_mcp_config_preserves_paths_and_tools",
+    "event_type": "successful_fix",
+    "source": "codex",
+    "content": "Configured Codex user-level MCP server for SEK in /home/sergey/.codex/config.toml using [mcp_servers.sekd] with command /data/Projects/AI/SEK-MCP/sekd and verified with `codex mcp list`; tool discovery exposed mcp__sekd.capture_event, mcp__sekd.query_experience, and mcp__sekd.list_knowledge.",
+    "expected_observation": "Configure Codex MCP servers in `/home/sergey/.codex/config.toml` with `[mcp_servers.sekd]`, command `/data/Projects/AI/SEK-MCP/sekd`, then verify with `codex mcp list` and tool discovery for `mcp__sekd.capture_event`, `mcp__sekd.query_experience`, and `mcp__sekd.list_knowledge`."
+  },
+  {
+    "name": "go_build_failure_preserves_exact_error_and_command",
+    "event_type": "failure",
+    "source": "codex",
+    "content": "Plain `go build -o sekd ./cmd/sekd` failed with `error obtaining VCS status: exit status 128` because /data/Projects/AI/SEK-MCP was not a git repository. In the sandbox, default /home/sergey/.cache/go-build can also be read-only. Fix: `GOCACHE=/tmp/sek-go-cache go build -buildvcs=false -o sekd ./cmd/sekd`.",
+    "expected_observation": "If `go build -o sekd ./cmd/sekd` fails with `error obtaining VCS status: exit status 128` in a non-git checkout or read-only `/home/sergey/.cache/go-build`, use `GOCACHE=/tmp/sek-go-cache go build -buildvcs=false -o sekd ./cmd/sekd`."
+  },
+  {
+    "name": "gitignore_binary_patterns_preserve_root_anchor",
+    "event_type": "successful_fix",
+    "source": "codex",
+    "content": "Added .gitignore for local artifacts. Important gotcha: unanchored `sekd` ignored `cmd/sekd/main.go`, so root binary ignores must be anchored as `/sekd` and `/sekctl`; keep `/.sek/` ignored.",
+    "expected_observation": "When ignoring root build artifacts in `.gitignore`, use anchored patterns like `/sekd`, `/sekctl`, and `/.sek/`; an unanchored `sekd` also ignores source paths such as `cmd/sekd/main.go`."
+  },
+  {
+    "name": "secret_redaction_preserves_context_without_secret",
+    "event_type": "failure",
+    "source": "codex",
+    "content": "Request failed with Authorization: Bearer abcdefghijklmnop while calling /v1/embeddings from internal/llm/embed_openai.go; redaction should keep the file path and endpoint but hide the bearer value.",
+    "expected_observation": "When logging failures from `internal/llm/embed_openai.go` against `/v1/embeddings`, preserve the endpoint and file path but redact `Authorization: Bearer [REDACTED]` before storing or distilling the event."
+  }
+]
