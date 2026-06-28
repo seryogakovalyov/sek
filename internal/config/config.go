@@ -5,13 +5,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/anomalyco/sek/internal/llm"
 )
 
 type Config struct {
-	ProjectDir string   `json:"project_dir,omitempty"`
-	DataDir    string   `json:"data_dir,omitempty"`
+	ProjectDir string     `json:"project_dir,omitempty"`
+	DataDir    string     `json:"data_dir,omitempty"`
 	LLM        llm.Config `json:"llm,omitempty"`
 
 	Store struct {
@@ -67,4 +68,10 @@ func (c *Config) DataDirPath() string {
 		return c.DataDir
 	}
 	return defaultDataDir()
+}
+
+func (c *Config) Normalize() {
+	if c.MCP.HTTPAddr != "" && !strings.Contains(c.MCP.HTTPAddr, ":") {
+		c.MCP.HTTPAddr = ":" + c.MCP.HTTPAddr
+	}
 }

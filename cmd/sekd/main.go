@@ -78,6 +78,7 @@ func main() {
 			cfg.LLM.BaseURL = *llmBaseURL
 		}
 	})
+	cfg.Normalize()
 
 	// 4. API key fallback
 	if cfg.LLM.APIKey == "" {
