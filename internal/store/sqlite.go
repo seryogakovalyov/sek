@@ -78,9 +78,6 @@ func migrate(db *sql.DB) error {
 	if err != nil {
 		// column may already exist
 	}
-	if err := dropLegacyProjectID(db); err != nil {
-		return err
-	}
 
 	_, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp)`)
 	if err != nil {
@@ -106,118 +103,12 @@ func migrate(db *sql.DB) error {
 	if err != nil {
 		return err
 	}
-	if err := dropLegacyProjectID(db); err != nil {
-		return err
-	}
 	_, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_retrieval_timestamp ON retrieval_log(timestamp)`)
 	if err != nil {
 		// ignore
 	}
 
 	return nil
-}
-
-func dropLegacyProjectID(db *sql.DB) error {
-	if err := rebuildWithoutProjectID(db, "events",
-		`CREATE TABLE events_new (
-			id TEXT PRIMARY KEY,
-			session_id TEXT NOT NULL,
-			server_session TEXT DEFAULT '',
-			timestamp TEXT NOT NULL,
-			type TEXT NOT NULL,
-			source TEXT NOT NULL,
-			content TEXT NOT NULL
-		)`,
-		`INSERT INTO events_new (id, session_id, server_session, timestamp, type, source, content)
-			SELECT id, session_id, COALESCE(server_session, ''), timestamp, type, source, content FROM events`,
-	); err != nil {
-		return err
-	}
-	if err := rebuildWithoutProjectID(db, "knowledge",
-		`CREATE TABLE knowledge_new (
-			id TEXT PRIMARY KEY,
-			level TEXT NOT NULL,
-			created_at TEXT NOT NULL,
-			content TEXT NOT NULL,
-			source_ids TEXT DEFAULT '[]',
-			embedding BLOB,
-			event_type TEXT DEFAULT '',
-			importance REAL DEFAULT 0.5,
-			usage_count INTEGER DEFAULT 0
-		)`,
-		`INSERT INTO knowledge_new (id, level, created_at, content, source_ids, embedding, event_type, importance, usage_count)
-			SELECT id, level, created_at, content, COALESCE(source_ids, '[]'), embedding, COALESCE(event_type, ''), COALESCE(importance, 0.5), COALESCE(usage_count, 0) FROM knowledge`,
-	); err != nil {
-		return err
-	}
-	return rebuildWithoutProjectID(db, "retrieval_log",
-		`CREATE TABLE retrieval_log_new (
-			id TEXT PRIMARY KEY,
-			session_id TEXT NOT NULL,
-			timestamp TEXT NOT NULL,
-			task TEXT NOT NULL,
-			results TEXT DEFAULT '[]',
-			used_ids TEXT DEFAULT '[]'
-		)`,
-		`INSERT INTO retrieval_log_new (id, session_id, timestamp, task, results, used_ids)
-			SELECT id, session_id, timestamp, task, COALESCE(results, '[]'), COALESCE(used_ids, '[]') FROM retrieval_log`,
-	)
-}
-
-func rebuildWithoutProjectID(db *sql.DB, table, createNew, copyRows string) error {
-	hasProjectID, err := tableHasColumn(db, table, "project_id")
-	if err != nil {
-		return err
-	}
-	if !hasProjectID {
-		return nil
-	}
-
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	if _, err := tx.Exec(`DROP TABLE IF EXISTS ` + table + `_new`); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(createNew); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(copyRows); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(`DROP TABLE ` + table); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(`ALTER TABLE ` + table + `_new RENAME TO ` + table); err != nil {
-		return err
-	}
-	return tx.Commit()
-}
-
-func tableHasColumn(db *sql.DB, table, column string) (bool, error) {
-	rows, err := db.Query(`PRAGMA table_info(` + table + `)`)
-	if err != nil {
-		return false, err
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var cid int
-		var name, typ string
-		var notNull int
-		var defaultValue any
-		var pk int
-		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
-			return false, err
-		}
-		if name == column {
-			return true, nil
-		}
-	}
-	return false, rows.Err()
 }
 
 func (s *sqliteStore) Append(ctx context.Context, event *models.Event) error {

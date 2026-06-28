@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"os"
 	"strings"
@@ -352,86 +351,5 @@ func TestClear(t *testing.T) {
 	}
 	if stats.EventCount != 0 {
 		t.Fatalf("expected 0 events, got %d", stats.EventCount)
-	}
-}
-
-func TestMigrateDropsLegacyProjectIDColumns(t *testing.T) {
-	f, err := os.CreateTemp("", "sek-legacy-*.db")
-	if err != nil {
-		t.Fatal(err)
-	}
-	f.Close()
-	t.Cleanup(func() { os.Remove(f.Name()) })
-
-	db, err := sql.Open("sqlite", f.Name())
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = db.Exec(`
-		CREATE TABLE events (
-			id TEXT PRIMARY KEY,
-			project_id TEXT NOT NULL,
-			session_id TEXT NOT NULL,
-			server_session TEXT DEFAULT '',
-			timestamp TEXT NOT NULL,
-			type TEXT NOT NULL,
-			source TEXT NOT NULL,
-			content TEXT NOT NULL
-		);
-		CREATE TABLE knowledge (
-			id TEXT PRIMARY KEY,
-			project_id TEXT NOT NULL,
-			level TEXT NOT NULL,
-			created_at TEXT NOT NULL,
-			content TEXT NOT NULL,
-			source_ids TEXT DEFAULT '[]',
-			embedding BLOB,
-			event_type TEXT DEFAULT '',
-			importance REAL DEFAULT 0.5,
-			usage_count INTEGER DEFAULT 0
-		);
-		CREATE TABLE retrieval_log (
-			id TEXT PRIMARY KEY,
-			project_id TEXT NOT NULL,
-			session_id TEXT NOT NULL,
-			timestamp TEXT NOT NULL,
-			task TEXT NOT NULL,
-			results TEXT DEFAULT '[]',
-			used_ids TEXT DEFAULT '[]'
-		);
-		INSERT INTO events (id, project_id, session_id, timestamp, type, source, content)
-			VALUES ('e1', 'p', 's', '2026-06-28T00:00:00Z', 'request', 'test', 'event');
-		INSERT INTO knowledge (id, project_id, level, created_at, content)
-			VALUES ('k1', 'p', 'observation', '2026-06-28T00:00:00Z', 'knowledge');
-		INSERT INTO retrieval_log (id, project_id, session_id, timestamp, task)
-			VALUES ('r1', 'p', 's', '2026-06-28T00:00:00Z', 'task');
-	`)
-	db.Close()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	s, err := NewSQLite(f.Name())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-
-	for _, table := range []string{"events", "knowledge", "retrieval_log"} {
-		hasProjectID, err := tableHasColumn(s.(*sqliteStore).db, table, "project_id")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if hasProjectID {
-			t.Fatalf("%s still has project_id column", table)
-		}
-	}
-
-	stats, err := s.Stats(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if stats.EventCount != 1 || stats.KnowledgeCount != 1 {
-		t.Fatalf("unexpected migrated counts: events=%d knowledge=%d", stats.EventCount, stats.KnowledgeCount)
 	}
 }
