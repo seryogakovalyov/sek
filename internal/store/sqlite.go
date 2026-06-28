@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/anomalyco/sek/internal/models"
@@ -81,6 +82,24 @@ func migrate(db *sql.DB) error {
 	if err != nil {
 		// ignore
 	}
+
+	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS retrieval_log (
+		id TEXT PRIMARY KEY,
+		project_id TEXT NOT NULL,
+		session_id TEXT NOT NULL,
+		timestamp TEXT NOT NULL,
+		task TEXT NOT NULL,
+		results TEXT DEFAULT '[]',
+		used_ids TEXT DEFAULT '[]'
+	)`)
+	if err != nil {
+		return err
+	}
+	_, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_retrieval_project ON retrieval_log(project_id, timestamp)`)
+	if err != nil {
+		// ignore
+	}
+
 	return nil
 }
 
@@ -436,7 +455,119 @@ func (s *sqliteStore) GC(ctx context.Context, projectID string, before string) (
 		result.EventsDeleted, _ = del.RowsAffected()
 	}
 
+	orphans, err := s.deleteOrphanDerived(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	result.OrphansDeleted = orphans
+
 	return &result, nil
+}
+
+func (s *sqliteStore) deleteOrphanDerived(ctx context.Context, projectID string) (int64, error) {
+	idRows, err := s.db.QueryContext(ctx, `SELECT id FROM knowledge WHERE project_id = ?`, projectID)
+	if err != nil {
+		return 0, fmt.Errorf("query existing ids: %w", err)
+	}
+	defer idRows.Close()
+
+	existingIDs := make(map[string]struct{})
+	for idRows.Next() {
+		var id string
+		if err := idRows.Scan(&id); err != nil {
+			return 0, fmt.Errorf("scan id: %w", err)
+		}
+		existingIDs[id] = struct{}{}
+	}
+	if err := idRows.Err(); err != nil {
+		return 0, fmt.Errorf("iterate ids: %w", err)
+	}
+
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, source_ids FROM knowledge WHERE project_id = ? AND level IN ('lesson', 'pattern')`,
+		projectID,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("query derived: %w", err)
+	}
+	defer rows.Close()
+
+	var orphanIDs []string
+	for rows.Next() {
+		var id, srcIDsStr string
+		if err := rows.Scan(&id, &srcIDsStr); err != nil {
+			return 0, fmt.Errorf("scan derived: %w", err)
+		}
+
+		var sourceIDs []string
+		if err := json.Unmarshal([]byte(srcIDsStr), &sourceIDs); err != nil || len(sourceIDs) == 0 {
+			continue
+		}
+
+		allGone := true
+		for _, sid := range sourceIDs {
+			if _, exists := existingIDs[sid]; exists {
+				allGone = false
+				break
+			}
+		}
+		if allGone {
+			orphanIDs = append(orphanIDs, id)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("iterate derived: %w", err)
+	}
+
+	if len(orphanIDs) == 0 {
+		return 0, nil
+	}
+
+	placeholders := make([]string, len(orphanIDs))
+	args := make([]any, len(orphanIDs))
+	for i, id := range orphanIDs {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+
+	query := `DELETE FROM knowledge WHERE id IN (` + strings.Join(placeholders, ",") + `)`
+	result, err := s.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, fmt.Errorf("delete orphans: %w", err)
+	}
+
+	n, _ := result.RowsAffected()
+	return n, nil
+}
+
+func (s *sqliteStore) LogRetrieval(ctx context.Context, log *models.RetrievalLog) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO retrieval_log (id, project_id, session_id, timestamp, task, results, used_ids) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		log.ID, log.ProjectID, log.SessionID, log.Timestamp.Format(time.RFC3339Nano), log.Task, log.Results, log.UsedIDs,
+	)
+	return err
+}
+
+func (s *sqliteStore) MarkRetrievalUsed(ctx context.Context, id string, knowledgeID string) error {
+	var usedIDs string
+	err := s.db.QueryRowContext(ctx, `SELECT used_ids FROM retrieval_log WHERE id = ?`, id).Scan(&usedIDs)
+	if err != nil {
+		return fmt.Errorf("retrieval log not found: %w", err)
+	}
+
+	var ids []string
+	json.Unmarshal([]byte(usedIDs), &ids)
+
+	for _, existing := range ids {
+		if existing == knowledgeID {
+			return nil
+		}
+	}
+	ids = append(ids, knowledgeID)
+
+	data, _ := json.Marshal(ids)
+	_, err = s.db.ExecContext(ctx, `UPDATE retrieval_log SET used_ids = ? WHERE id = ?`, string(data), id)
+	return err
 }
 
 func (s *sqliteStore) Close() error {

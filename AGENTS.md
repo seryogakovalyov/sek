@@ -1,6 +1,6 @@
 # SEK: Project Experience Runtime
 
-You have access to SEK via MCP tools (`capture_event`, `query_experience`, `list_knowledge`).
+You have access to SEK via MCP tools (`capture_event`, `query_experience`, `report_usage`, `list_knowledge`).
 SEK remembers what you learn across sessions. Use it deliberately.
 
 ## When to call `capture_event`
@@ -43,6 +43,13 @@ Good: `Fixed TestFoo — was failing because func init() ran before mock setup. 
 5. **Before making any decision** → query_experience(options, tradeoffs)
 
 If you skip the tool call and guess, you will give wrong project-specific answers.
+
+## When to call `report_usage`
+
+Call AFTER you use knowledge returned by `query_experience` — this teaches SEK which results were actually useful, improving future scoring.
+
+1. **You applied the knowledge** → call `report_usage(retrieval_id, knowledge_id)` with the ID from the query_experience response
+2. **You did NOT use it** → don't call — unused entries naturally decay via scoring
 
 ## Session digest (automatic)
 

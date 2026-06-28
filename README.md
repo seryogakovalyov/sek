@@ -138,7 +138,8 @@ go build -o sekctl ./cmd/sekctl/
 | Инструмент | Назначение | Возвращает |
 |---|---|---|
 | `capture_event` | Записать событие + дистиллировать в observation | ID события + ошибка дистилляции (если была) |
-| `query_experience` | Найти релевантный опыт по задаче (векторный поиск) | Knowledge (obs/lesson/pattern) с score похожести |
+| `query_experience` | Найти релевантный опыт по задаче (векторный поиск) | Knowledge (obs/lesson/pattern) с score похожести; `retrieval_id` для последующего `report_usage` |
+| `report_usage` | Сообщить, что выданный knowledge был реально использован | confirmation |
 | `list_knowledge` | Посмотреть всё накопленное знание проекта | Flat список, сортировка по дате |
 
 ### Параметры инструментов
@@ -169,6 +170,13 @@ go build -o sekctl ./cmd/sekctl/
 | `project_id` | нет | ID проекта (по умолч. `default`) |
 | `level` | нет | Фильтр по уровню: `observation`, `lesson`, `pattern` |
 | `limit` | нет | Сколько записей вернуть (по умолч. 20) |
+
+**report_usage:**
+
+| Параметр | Обязательный | Описание |
+|---|---|---|
+| `retrieval_id` | да | ID из `query_experience` (в поле `retrieval_id` в ответе) |
+| `knowledge_id` | да | ID знание, которое агент реально использовал |
 
 ## Архитектура
 
@@ -324,8 +332,8 @@ sekctl list --project _global
 - [x] Secret redaction перед сохранением events/knowledge: ключи, токены, пароли, приватные URL
 - [x] Golden evals для дистилляции: fixture events → expected observations, чтобы prompt не терял пути, команды, config keys и tool names
 - [x] Source trace: показывать для каждого lesson/pattern исходные events/observations и почему запись попала в ответ
-- [ ] `sekctl gc --before <timestamp>`: абсолютный cutoff + удаление orphan-derived lessons/patterns, которые ссылаются на удалённые source_ids
-- [ ] Retrieval telemetry: сохранять какие knowledge entries были выданы на запрос и какие из них агент реально использовал
+- [x] `sekctl gc --before <timestamp>`: абсолютный cutoff + удаление orphan-derived lessons/patterns, которые ссылаются на удалённые source_ids
+- [x] Retrieval telemetry: сохранять какие knowledge entries были выданы на запрос и какие из них агент реально использовал (таблица `retrieval_log`, MCP-инструмент `report_usage`)
 - [ ] Feedback loop: агент оценивает полезность выданного опыта → влияет на score
 - [ ] Knowledge lifecycle: `supersedes`, `conflicts_with`, `deprecated_at` для устаревших или заменённых решений
 - [ ] Автоматическая очистка устаревших наблюдений (TTL + relevance decay)

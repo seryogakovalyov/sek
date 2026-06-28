@@ -62,7 +62,7 @@ Commands:
   list              List knowledge entries
   log               List recent events
   rm <id>           Delete knowledge by ID
-  gc                Delete old entries (GC by TTL)
+  gc                Delete old entries (GC by TTL or absolute cutoff)
   status, stats     Show project statistics
   prune             Delete all knowledge and events
   query <task>      Query experience (needs LLM flags)
@@ -256,9 +256,17 @@ func cmdGC(args []string) {
 	fs := flag.NewFlagSet("gc", flag.ExitOnError)
 	project := fs.String("project", "", "project directory (default: cwd)")
 	allProjects := fs.Bool("all", false, "apply to all projects in the store")
-	olderThan := fs.String("older-than", "720h", "delete entries older than this duration (30d default)")
+	olderThan := fs.String("older-than", "", "delete entries older than this duration (e.g. 720h, 168h)")
+	before := fs.String("before", "", "delete entries created before this timestamp (RFC3339 or YYYY-MM-DD)")
 	dryRun := fs.Bool("dry-run", false, "show what would be deleted without deleting")
 	fs.Parse(args)
+
+	if *olderThan == "" && *before == "" {
+		*olderThan = "720h"
+	}
+	if *olderThan != "" && *before != "" {
+		log.Fatalf("--older-than and --before are mutually exclusive")
+	}
 
 	sp := storePath(*project)
 	if _, err := os.Stat(sp); os.IsNotExist(err) {
@@ -269,7 +277,16 @@ func cmdGC(args []string) {
 	s := openStore(*project)
 	defer s.Close()
 
-	cutoff := time.Now().Add(-parseDuration(*olderThan))
+	var cutoff time.Time
+	if *before != "" {
+		var err error
+		cutoff, err = parseTimestamp(*before)
+		if err != nil {
+			log.Fatalf("invalid --before timestamp %q: %v", *before, err)
+		}
+	} else {
+		cutoff = time.Now().Add(-parseDuration(*olderThan))
+	}
 	cutoffStr := cutoff.Format(time.RFC3339Nano)
 
 	projectID := "*"
@@ -279,7 +296,11 @@ func cmdGC(args []string) {
 
 	if *dryRun {
 		fmt.Printf("Store:  %s\n", sp)
-		fmt.Printf("Cutoff: %s (older than %s)\n", cutoff.Format("2006-01-02"), *olderThan)
+		if *before != "" {
+			fmt.Printf("Cutoff: %s (before %s)\n", cutoff.Format("2006-01-02"), *before)
+		} else {
+			fmt.Printf("Cutoff: %s (older than %s)\n", cutoff.Format("2006-01-02"), *olderThan)
+		}
 		fmt.Printf("Filter: %s\n", map[bool]string{true: "all projects", false: "project " + projectID}[*allProjects])
 		fmt.Println("(dry-run, no changes made)")
 		return
@@ -293,6 +314,23 @@ func cmdGC(args []string) {
 	fmt.Printf("GC complete (cutoff: %s)\n", cutoff.Format("2006-01-02"))
 	fmt.Printf("  knowledge deleted: %d\n", result.KnowledgeDeleted)
 	fmt.Printf("  events deleted:    %d\n", result.EventsDeleted)
+	fmt.Printf("  orphans deleted:   %d\n", result.OrphansDeleted)
+}
+
+func parseTimestamp(s string) (time.Time, error) {
+	formats := []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02",
+		"2006-01-02T15:04:05",
+	}
+	for _, f := range formats {
+		t, err := time.Parse(f, s)
+		if err == nil {
+			return t, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("unrecognized timestamp format (try RFC3339 or YYYY-MM-DD)")
 }
 
 func splitArgs(args []string) (task string, flags []string) {

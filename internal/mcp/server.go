@@ -2,11 +2,13 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
@@ -79,7 +81,27 @@ func newMCPServer(st store.Store, provider llm.Provider, embedder llm.Embedder, 
 			output = "No relevant experience found."
 		}
 
+		retrievalID := logRetrieval(ctx, st, projectID, serverSessionID, task, result.Knowledge)
+		if retrievalID != "" {
+			output = fmt.Sprintf("retrieval_id: %s\n\n%s", retrievalID, output)
+		}
+
 		return mcp.NewToolResultText(output), nil
+	})
+
+	s.AddTool(reportUsageTool(), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		retrievalID := mcp.ParseString(req, "retrieval_id", "")
+		knowledgeID := mcp.ParseString(req, "knowledge_id", "")
+
+		if retrievalID == "" || knowledgeID == "" {
+			return mcp.NewToolResultError("retrieval_id and knowledge_id are required"), nil
+		}
+
+		if err := st.MarkRetrievalUsed(ctx, retrievalID, knowledgeID); err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("mark used failed: %v", err)), nil
+		}
+
+		return mcp.NewToolResultText("marked as used"), nil
 	})
 
 	s.AddTool(listKnowledgeTool(), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -232,6 +254,44 @@ HOW TO QUERY:
 		),
 		mcp.WithInteger("max_entries",
 			mcp.Description("Maximum number of experience entries (default: 10)"),
+		),
+	)
+}
+
+func logRetrieval(ctx context.Context, st store.Store, projectID, sessionID, task string, knowledge []models.Knowledge) string {
+	type resultEntry struct {
+		ID    string  `json:"id"`
+		Score float64 `json:"score"`
+	}
+	entries := make([]resultEntry, len(knowledge))
+	for i, k := range knowledge {
+		entries[i] = resultEntry{ID: k.ID, Score: k.Score}
+	}
+	data, _ := json.Marshal(entries)
+
+	id := uuid.New().String()
+	st.LogRetrieval(ctx, &models.RetrievalLog{
+		ID:        id,
+		ProjectID: projectID,
+		SessionID: sessionID,
+		Timestamp: time.Now(),
+		Task:      task,
+		Results:   string(data),
+		UsedIDs:   "[]",
+	})
+	return id
+}
+
+func reportUsageTool() mcp.Tool {
+	return mcp.NewTool("report_usage",
+		mcp.WithDescription("Report that a knowledge entry from a previous query_experience call was actually used by the agent. Call this after applying the retrieved knowledge to your work."),
+		mcp.WithString("retrieval_id",
+			mcp.Required(),
+			mcp.Description("The ID of the retrieval log entry (returned in query_experience response)"),
+		),
+		mcp.WithString("knowledge_id",
+			mcp.Required(),
+			mcp.Description("The ID of the knowledge entry that was used"),
 		),
 	)
 }
