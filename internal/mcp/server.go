@@ -100,6 +100,9 @@ func newMCPServer(st store.Store, provider llm.Provider, embedder llm.Embedder, 
 		if err := st.MarkRetrievalUsed(ctx, retrievalID, knowledgeID); err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("mark used failed: %v", err)), nil
 		}
+		if err := st.IncrementUsageCount(ctx, knowledgeID); err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("increment usage count: %v", err)), nil
+		}
 
 		return mcp.NewToolResultText("marked as used"), nil
 	})

@@ -12,8 +12,10 @@ import (
 )
 
 const (
-	recencyHalfLife = 30 * 24 * time.Hour
-	maxRecencyBoost = 0.3
+	recencyHalfLife  = 30 * 24 * time.Hour
+	maxRecencyBoost  = 0.3
+	maxUsageBoost    = 0.3
+	usageBoostPerUse = 0.05
 )
 
 type Engine struct {
@@ -95,7 +97,8 @@ func applyScoreAdjustments(knowledge []models.Knowledge) []models.Knowledge {
 	for i, k := range knowledge {
 		recencyBoost := recencyFactor(k.CreatedAt, now)
 		importanceBoost := float64(k.Importance)
-		k.Score = k.Score * (1 + recencyBoost + importanceBoost)
+		usageBoost := math.Min(float64(k.UsageCount)*usageBoostPerUse, maxUsageBoost)
+		k.Score = k.Score * (1 + recencyBoost + importanceBoost + usageBoost)
 		result[i] = k
 	}
 

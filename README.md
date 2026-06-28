@@ -334,7 +334,7 @@ sekctl list --project _global
 - [x] Source trace: показывать для каждого lesson/pattern исходные events/observations и почему запись попала в ответ
 - [x] `sekctl gc --before <timestamp>`: абсолютный cutoff + удаление orphan-derived lessons/patterns, которые ссылаются на удалённые source_ids
 - [x] Retrieval telemetry: сохранять какие knowledge entries были выданы на запрос и какие из них агент реально использовал (таблица `retrieval_log`, MCP-инструмент `report_usage`)
-- [ ] Feedback loop: агент оценивает полезность выданного опыта → влияет на score
+- [x] Feedback loop: `report_usage` инкрементит `usage_count` на knowledge → `usageBoost` в scoring (+0.05 per use, max +0.3)
 - [ ] Knowledge lifecycle: `supersedes`, `conflicts_with`, `deprecated_at` для устаревших или заменённых решений
 - [ ] Автоматическая очистка устаревших наблюдений (TTL + relevance decay)
 - [ ] `sekctl --help`: top-level help должен печатать usage и выходить с code 0

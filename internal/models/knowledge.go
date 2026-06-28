@@ -30,6 +30,7 @@ type Knowledge struct {
 	Score       float64        `json:"score,omitempty"`
 	EventType   EventType      `json:"event_type,omitempty"`
 	Importance  Importance     `json:"importance,omitempty"`
+	UsageCount  int            `json:"usage_count,omitempty"`
 }
 
 func EventImportance(et EventType) Importance {

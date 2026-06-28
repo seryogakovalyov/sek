@@ -44,5 +44,6 @@ type Store interface {
 	GC(ctx context.Context, projectID string, before string) (*GCResult, error)
 	LogRetrieval(ctx context.Context, log *models.RetrievalLog) error
 	MarkRetrievalUsed(ctx context.Context, id string, knowledgeID string) error
+	IncrementUsageCount(ctx context.Context, id string) error
 	Close() error
 }

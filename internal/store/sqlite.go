@@ -74,6 +74,10 @@ func migrate(db *sql.DB) error {
 	if err != nil {
 		// column may already exist
 	}
+	_, err = db.Exec(`ALTER TABLE knowledge ADD COLUMN usage_count INTEGER DEFAULT 0`)
+	if err != nil {
+		// column may already exist
+	}
 	_, err = db.Exec(`ALTER TABLE events ADD COLUMN server_session TEXT DEFAULT ''`)
 	if err != nil {
 		// column may already exist
@@ -135,8 +139,8 @@ func (s *sqliteStore) Save(ctx context.Context, k *models.Knowledge) error {
 		embBytes = encodeEmbedding(k.Embedding)
 	}
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO knowledge (id, project_id, level, created_at, content, source_ids, embedding, event_type, importance) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		k.ID, k.ProjectID, string(k.Level), k.CreatedAt.Format(time.RFC3339Nano), k.Content, string(sourceIDs), embBytes, string(k.EventType), float64(k.Importance),
+		`INSERT INTO knowledge (id, project_id, level, created_at, content, source_ids, embedding, event_type, importance, usage_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		k.ID, k.ProjectID, string(k.Level), k.CreatedAt.Format(time.RFC3339Nano), k.Content, string(sourceIDs), embBytes, string(k.EventType), float64(k.Importance), k.UsageCount,
 	)
 	return err
 }
@@ -146,7 +150,7 @@ func (s *sqliteStore) Search(ctx context.Context, projectID string, query string
 		limit = 50
 	}
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, project_id, level, created_at, content, source_ids, embedding, event_type, importance FROM knowledge WHERE project_id = ? AND content LIKE '%' || ? || '%' ORDER BY created_at DESC LIMIT ?`,
+		`SELECT id, project_id, level, created_at, content, source_ids, embedding, event_type, importance, COALESCE(usage_count, 0) FROM knowledge WHERE project_id = ? AND content LIKE '%' || ? || '%' ORDER BY created_at DESC LIMIT ?`,
 		projectID, query, limit,
 	)
 	if err != nil {
@@ -165,13 +169,15 @@ func scanKnowledge(rows *sql.Rows) ([]models.Knowledge, error) {
 		var embBytes []byte
 		var evType string
 		var importance float64
-		if err := rows.Scan(&k.ID, &k.ProjectID, &k.Level, &ts, &k.Content, &srcIDs, &embBytes, &evType, &importance); err != nil {
+		var usageCount int
+		if err := rows.Scan(&k.ID, &k.ProjectID, &k.Level, &ts, &k.Content, &srcIDs, &embBytes, &evType, &importance, &usageCount); err != nil {
 			return nil, err
 		}
 		k.CreatedAt, _ = time.Parse(time.RFC3339Nano, ts)
 		json.Unmarshal([]byte(srcIDs), &k.SourceIDs)
 		k.EventType = models.EventType(evType)
 		k.Importance = models.Importance(importance)
+		k.UsageCount = usageCount
 		if len(embBytes) > 0 {
 			k.Embedding = decodeEmbedding(embBytes)
 		}
@@ -186,7 +192,7 @@ func (s *sqliteStore) FindSimilar(ctx context.Context, projectID string, embeddi
 	}
 
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, project_id, level, created_at, content, source_ids, embedding, event_type, importance FROM knowledge WHERE project_id = ? AND level = 'observation' AND embedding IS NOT NULL`,
+		`SELECT id, project_id, level, created_at, content, source_ids, embedding, event_type, importance, COALESCE(usage_count, 0) FROM knowledge WHERE project_id = ? AND level = 'observation' AND embedding IS NOT NULL`,
 		projectID,
 	)
 	if err != nil {
@@ -236,7 +242,7 @@ func (s *sqliteStore) SearchSimilar(ctx context.Context, projectID string, embed
 	}
 
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, project_id, level, created_at, content, source_ids, embedding, event_type, importance FROM knowledge WHERE project_id = ?`,
+		`SELECT id, project_id, level, created_at, content, source_ids, embedding, event_type, importance, COALESCE(usage_count, 0) FROM knowledge WHERE project_id = ?`,
 		projectID,
 	)
 	if err != nil {
@@ -298,12 +304,12 @@ func (s *sqliteStore) List(ctx context.Context, projectID string, level models.K
 	var err error
 	if level == "" {
 		rows, err = s.db.QueryContext(ctx,
-			`SELECT id, project_id, level, created_at, content, source_ids, embedding, event_type, importance FROM knowledge WHERE project_id = ? ORDER BY created_at DESC LIMIT ?`,
+			`SELECT id, project_id, level, created_at, content, source_ids, embedding, event_type, importance, COALESCE(usage_count, 0) FROM knowledge WHERE project_id = ? ORDER BY created_at DESC LIMIT ?`,
 			projectID, limit,
 		)
 	} else {
 		rows, err = s.db.QueryContext(ctx,
-			`SELECT id, project_id, level, created_at, content, source_ids, embedding, event_type, importance FROM knowledge WHERE project_id = ? AND level = ? ORDER BY created_at DESC LIMIT ?`,
+			`SELECT id, project_id, level, created_at, content, source_ids, embedding, event_type, importance, COALESCE(usage_count, 0) FROM knowledge WHERE project_id = ? AND level = ? ORDER BY created_at DESC LIMIT ?`,
 			projectID, string(level), limit,
 		)
 	}
@@ -567,6 +573,11 @@ func (s *sqliteStore) MarkRetrievalUsed(ctx context.Context, id string, knowledg
 
 	data, _ := json.Marshal(ids)
 	_, err = s.db.ExecContext(ctx, `UPDATE retrieval_log SET used_ids = ? WHERE id = ?`, string(data), id)
+	return err
+}
+
+func (s *sqliteStore) IncrementUsageCount(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE knowledge SET usage_count = COALESCE(usage_count, 0) + 1 WHERE id = ?`, id)
 	return err
 }
 
