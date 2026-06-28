@@ -159,6 +159,7 @@ func cmdList(args []string) {
 		fmt.Println("no knowledge stored")
 		return
 	}
+	reverseKnowledge(knowledge)
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(w, "ID\tLEVEL\tCREATED\tSOURCES\tCONTENT")
@@ -194,6 +195,7 @@ func cmdLog(args []string) {
 		fmt.Println("no events recorded")
 		return
 	}
+	reverseEvents(events)
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(w, "ID\tTYPE\tSOURCE\tTIME\tCONTENT")
@@ -206,6 +208,18 @@ func cmdLog(args []string) {
 	}
 	w.Flush()
 	fmt.Printf("\n%d events\n", len(events))
+}
+
+func reverseKnowledge(items []models.Knowledge) {
+	for i, j := 0, len(items)-1; i < j; i, j = i+1, j-1 {
+		items[i], items[j] = items[j], items[i]
+	}
+}
+
+func reverseEvents(items []models.Event) {
+	for i, j := 0, len(items)-1; i < j; i, j = i+1, j-1 {
+		items[i], items[j] = items[j], items[i]
+	}
 }
 
 // --- rm ---
