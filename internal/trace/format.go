@@ -7,15 +7,15 @@ import (
 	"github.com/seryogakovalyov/sek/internal/models"
 )
 
-func FormatKnowledge(k models.Knowledge, includeScore bool) string {
+func FormatKnowledge(k models.Knowledge, includeTrace bool) string {
 	header := fmt.Sprintf("[%s] %s", k.Level, k.CreatedAt.Format("2006-01-02"))
-	if includeScore && k.Score > 0 {
+	if includeTrace && k.Score > 0 {
 		header += fmt.Sprintf(" (score: %.3f)", k.Score)
 	}
 
 	lines := []string{header, "---", "id: " + k.ID, k.Content}
 
-	traceLines := SourceTrace(k, includeScore)
+	traceLines := SourceTrace(k, includeTrace)
 	if len(traceLines) > 0 {
 		lines = append(lines, "Trace:")
 		lines = append(lines, traceLines...)
@@ -26,13 +26,16 @@ func FormatKnowledge(k models.Knowledge, includeScore bool) string {
 
 func SourceTrace(k models.Knowledge, includeScore bool) []string {
 	var lines []string
+	if !includeScore {
+		return lines
+	}
 	if len(k.SourceIDs) > 0 {
 		lines = append(lines, "- source_ids: "+strings.Join(k.SourceIDs, ", "))
 	}
-	if includeScore && k.Score > 0 {
+	if k.Score > 0 {
 		lines = append(lines, fmt.Sprintf("- why: retrieval score %.3f after similarity, recency, and importance adjustments", k.Score))
 	}
-	if includeScore && k.Breakdown.FinalScore > 0 {
+	if k.Breakdown.FinalScore > 0 {
 		lines = append(lines, fmt.Sprintf("- score_breakdown: vector=%.3f keyword=%.3f base=%.3f recency=%.3f importance=%.3f usage=%.3f final=%.3f matches=%s",
 			k.Breakdown.VectorScore,
 			k.Breakdown.KeywordScore,

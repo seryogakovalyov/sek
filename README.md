@@ -13,7 +13,7 @@ SEK is not a coding agent, LLM provider, or external RAG system. It is a local e
 - Event distillation into observations via LLM.
 - Promotion: observations → lessons → patterns.
 - Vector search with keyword fallback.
-- Source trace: output includes `source_ids`, relevance reasons, and scoring metadata.
+- Source trace: optional output with `source_ids`, relevance reasons, and scoring metadata.
 - Secret redaction before saving events/knowledge.
 - Retrieval telemetry and feedback loop via `report_usage`.
 - `sekctl` for browsing, searching, GC, and store maintenance.
@@ -222,10 +222,11 @@ Parameters:
 | Parameter | Required | Description |
 |---|---|---|
 | `task` | yes | Question or task description |
-| `max_tokens` | no | Maximum response size |
-| `max_entries` | no | Maximum number of entries |
+| `max_tokens` | no | Maximum response size, default `1000` |
+| `max_entries` | no | Maximum number of entries, default `5` |
+| `include_trace` | no | Include source trace and score breakdown, default `false` |
 
-The response includes formatted knowledge entries and a `retrieval_id` for `report_usage`.
+The response includes compact formatted knowledge entries and a `retrieval_id` for `report_usage`. Set `include_trace=true` when debugging retrieval relevance.
 
 ### `report_usage`
 
@@ -280,7 +281,7 @@ sekctl list --project _global
 | `status` | `--project` | Show counters and DB size |
 | `list` | `--project`, `--level`, `--limit` | Show knowledge entries |
 | `log` | `--project`, `--limit` | Show raw events |
-| `query` | `--project`, `--llm-*`, `--max-tokens`, `--max-entries` | Find experience via reuse engine |
+| `query` | `--project`, `--llm-*`, `--max-tokens`, `--max-entries`, `--trace` | Find experience via reuse engine |
 | `rm <id>` | `--project` | Delete a knowledge entry |
 | `gc` | `--project`, `--older-than`, `--before`, `--dry-run` | Delete old entries, retrieval logs, and orphan-derived knowledge |
 | `prune` | `--project`, `--force` | Delete all events and knowledge from store |

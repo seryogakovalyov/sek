@@ -56,8 +56,9 @@ func newMCPServer(st store.Store, provider llm.Provider, embedder llm.Embedder, 
 
 	s.AddTool(queryTool(), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		task := mcp.ParseString(req, "task", "")
-		maxTokens := mcp.ParseInt(req, "max_tokens", 2000)
-		maxEntries := mcp.ParseInt(req, "max_entries", 10)
+		maxTokens := mcp.ParseInt(req, "max_tokens", 1000)
+		maxEntries := mcp.ParseInt(req, "max_entries", 5)
+		includeTrace := mcp.ParseBoolean(req, "include_trace", false)
 
 		result, err := reuseEngine.Query(ctx, models.ReuseRequest{
 			Task: task,
@@ -72,7 +73,7 @@ func newMCPServer(st store.Store, provider llm.Provider, embedder llm.Embedder, 
 
 		output := ""
 		for _, k := range result.Knowledge {
-			output += trace.FormatKnowledge(k, true) + "\n\n"
+			output += trace.FormatKnowledge(k, includeTrace) + "\n\n"
 		}
 		if output == "" {
 			output = "No relevant experience found."
@@ -247,10 +248,13 @@ HOW TO QUERY:
 			mcp.Description("Task description or question — be specific, include error messages or file paths where relevant"),
 		),
 		mcp.WithInteger("max_tokens",
-			mcp.Description("Maximum tokens for returned experience (default: 2000)"),
+			mcp.Description("Maximum tokens for returned experience (default: 1000)"),
 		),
 		mcp.WithInteger("max_entries",
-			mcp.Description("Maximum number of experience entries (default: 10)"),
+			mcp.Description("Maximum number of experience entries (default: 5)"),
+		),
+		mcp.WithBoolean("include_trace",
+			mcp.Description("Include source trace, score breakdown, event type, and importance metadata (default: false)"),
 		),
 	)
 }

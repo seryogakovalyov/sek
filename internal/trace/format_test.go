@@ -49,7 +49,7 @@ func TestFormatKnowledgeIncludesSourceTraceAndWhy(t *testing.T) {
 	}
 }
 
-func TestFormatKnowledgeCanOmitScoreReason(t *testing.T) {
+func TestFormatKnowledgeCanOmitTrace(t *testing.T) {
 	k := models.Knowledge{
 		ID:        "obs-1",
 		Level:     models.LevelObservation,
@@ -60,10 +60,12 @@ func TestFormatKnowledgeCanOmitScoreReason(t *testing.T) {
 	}
 
 	got := FormatKnowledge(k, false)
-	if strings.Contains(got, "score:") || strings.Contains(got, "- why:") {
-		t.Fatalf("expected no score details:\n%s", got)
+	for _, unwanted := range []string{"score:", "Trace:", "- why:", "- source_ids:", "- event_type:", "- importance:"} {
+		if strings.Contains(got, unwanted) {
+			t.Fatalf("expected compact output without %q:\n%s", unwanted, got)
+		}
 	}
-	if !strings.Contains(got, "- source_ids: event-1") {
-		t.Fatalf("expected source trace:\n%s", got)
+	if !strings.Contains(got, "Observation.") {
+		t.Fatalf("expected content in compact output:\n%s", got)
 	}
 }

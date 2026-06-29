@@ -407,8 +407,9 @@ func cmdQuery(args []string) {
 	llmModel := fs.String("llm-model", "gpt-4o", "LLM model")
 	llmKey := fs.String("llm-key", "", "LLM API key")
 	llmBaseURL := fs.String("llm-base-url", "", "LLM API base URL")
-	maxTokens := fs.Int("max-tokens", 2000, "max tokens in response")
-	maxEntries := fs.Int("max-entries", 10, "max entries")
+	maxTokens := fs.Int("max-tokens", 1000, "max tokens in response")
+	maxEntries := fs.Int("max-entries", 5, "max entries")
+	includeTrace := fs.Bool("trace", false, "include source trace and score breakdown")
 
 	task, flagArgs := splitArgs(args)
 	fs.Parse(flagArgs)
@@ -457,7 +458,7 @@ func cmdQuery(args []string) {
 	}
 
 	for _, k := range result.Knowledge {
-		fmt.Println(trace.FormatKnowledge(k, true))
+		fmt.Println(trace.FormatKnowledge(k, *includeTrace))
 		fmt.Println()
 	}
 	fmt.Printf("total tokens: %d\n", result.TotalTokens)
