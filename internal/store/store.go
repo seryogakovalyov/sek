@@ -46,5 +46,7 @@ type Store interface {
 	LogRetrieval(ctx context.Context, log *models.RetrievalLog) error
 	MarkRetrievalUsed(ctx context.Context, id string, knowledgeID string) (bool, error)
 	IncrementUsageCount(ctx context.Context, id string) error
+	LogModuleRoute(ctx context.Context, log *models.ModuleRouteLog) error
+	ListModuleRoutes(ctx context.Context, limit int) ([]models.ModuleRouteLog, error)
 	Close() error
 }

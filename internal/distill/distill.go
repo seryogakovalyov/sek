@@ -7,6 +7,8 @@ import (
 	"math"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/seryogakovalyov/sek/internal/llm"
 	"github.com/seryogakovalyov/sek/internal/models"
 	"github.com/seryogakovalyov/sek/internal/redact"
@@ -24,6 +26,10 @@ type Pipeline struct {
 	model    string
 	store    store.KnowledgeStore
 	obsCount int
+}
+
+type moduleRouteLogger interface {
+	LogModuleRoute(ctx context.Context, log *models.ModuleRouteLog) error
 }
 
 func NewPipeline(llm llm.Provider, embedder llm.Embedder, model string, s store.KnowledgeStore) *Pipeline {
@@ -50,6 +56,7 @@ func (p *Pipeline) Process(ctx context.Context, events []models.Event) error {
 		if !saved {
 			continue
 		}
+		p.shadowRouteModule(ctx, obs)
 
 		p.obsCount++
 		if p.obsCount%promoteAfter == 0 {
@@ -59,6 +66,27 @@ func (p *Pipeline) Process(ctx context.Context, events []models.Event) error {
 		}
 	}
 	return nil
+}
+
+func (p *Pipeline) shadowRouteModule(ctx context.Context, k *models.Knowledge) {
+	route, err := p.routeModule(ctx, k.Content)
+	if err != nil {
+		log.Printf("module route warning: knowledge=%s error=%v", k.ID, err)
+		return
+	}
+	log.Printf("module route: knowledge=%s module=%s confidence=%.2f reason=%s", k.ID, route.Module, route.Confidence, route.Reason)
+	if routeLogger, ok := p.store.(moduleRouteLogger); ok {
+		if err := routeLogger.LogModuleRoute(ctx, &models.ModuleRouteLog{
+			ID:          uuid.New().String(),
+			KnowledgeID: k.ID,
+			Timestamp:   time.Now(),
+			Module:      route.Module,
+			Confidence:  route.Confidence,
+			Reason:      route.Reason,
+		}); err != nil {
+			log.Printf("module route log warning: knowledge=%s error=%v", k.ID, err)
+		}
+	}
 }
 
 func (p *Pipeline) embedAndSaveDedup(ctx context.Context, k *models.Knowledge) (bool, error) {

@@ -339,6 +339,14 @@ Examples for future golden evals:
 
 For now, the built-in `engineering` module remains the default. If routing confidence is low, prefer `engineering` over inventing a new module. Store source/channel separately from module when that data becomes useful.
 
+Current state:
+
+- module routing runs in shadow mode after an observation is saved;
+- routing decisions are stored as telemetry in `module_route_log`;
+- `knowledge` does not store `module` yet;
+- retrieval is not module-aware yet;
+- MCP tools do not accept `module`, and should stay that way until routing quality is proven.
+
 ```text
 MCP client
   ├─ stdio

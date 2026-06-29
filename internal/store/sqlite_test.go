@@ -61,6 +61,47 @@ func TestSaveAndList(t *testing.T) {
 	}
 }
 
+func TestLogAndListModuleRoutes(t *testing.T) {
+	s := newTestStore(t)
+	defer s.Close()
+	ctx := context.Background()
+
+	err := s.LogModuleRoute(ctx, &models.ModuleRouteLog{
+		ID:          "route-1",
+		KnowledgeID: "obs-1",
+		Timestamp:   time.Now(),
+		Module:      models.ModuleLocalAI,
+		Confidence:  0.95,
+		Reason:      "local embeddings setup",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	routes, err := s.ListModuleRoutes(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(routes) != 1 {
+		t.Fatalf("expected 1 route, got %d", len(routes))
+	}
+	if routes[0].ID != "route-1" {
+		t.Fatalf("ID = %q", routes[0].ID)
+	}
+	if routes[0].KnowledgeID != "obs-1" {
+		t.Fatalf("KnowledgeID = %q", routes[0].KnowledgeID)
+	}
+	if routes[0].Module != models.ModuleLocalAI {
+		t.Fatalf("Module = %q", routes[0].Module)
+	}
+	if routes[0].Confidence != 0.95 {
+		t.Fatalf("Confidence = %.2f", routes[0].Confidence)
+	}
+	if routes[0].Reason != "local embeddings setup" {
+		t.Fatalf("Reason = %q", routes[0].Reason)
+	}
+}
+
 func TestAppendRedactsSecrets(t *testing.T) {
 	s := newTestStore(t)
 	defer s.Close()

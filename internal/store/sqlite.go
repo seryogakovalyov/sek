@@ -115,6 +115,26 @@ func migrate(db *sql.DB) error {
 		// ignore
 	}
 
+	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS module_route_log (
+		id TEXT PRIMARY KEY,
+		knowledge_id TEXT NOT NULL,
+		timestamp TEXT NOT NULL,
+		module TEXT NOT NULL,
+		confidence REAL DEFAULT 0,
+		reason TEXT DEFAULT ''
+	)`)
+	if err != nil {
+		return err
+	}
+	_, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_module_route_timestamp ON module_route_log(timestamp)`)
+	if err != nil {
+		// ignore
+	}
+	_, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_module_route_knowledge ON module_route_log(knowledge_id)`)
+	if err != nil {
+		// ignore
+	}
+
 	return nil
 }
 
@@ -655,6 +675,43 @@ func (s *sqliteStore) IncrementUsageCount(ctx context.Context, id string) error 
 		return fmt.Errorf("knowledge not found: %s", id)
 	}
 	return err
+}
+
+func (s *sqliteStore) LogModuleRoute(ctx context.Context, log *models.ModuleRouteLog) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO module_route_log (id, knowledge_id, timestamp, module, confidence, reason) VALUES (?, ?, ?, ?, ?, ?)`,
+		log.ID, log.KnowledgeID, log.Timestamp.Format(time.RFC3339Nano), log.Module, log.Confidence, log.Reason,
+	)
+	return err
+}
+
+func (s *sqliteStore) ListModuleRoutes(ctx context.Context, limit int) ([]models.ModuleRouteLog, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, knowledge_id, timestamp, module, confidence, reason FROM module_route_log ORDER BY timestamp DESC LIMIT ?`,
+		limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var logs []models.ModuleRouteLog
+	for rows.Next() {
+		var item models.ModuleRouteLog
+		var ts string
+		if err := rows.Scan(&item.ID, &item.KnowledgeID, &ts, &item.Module, &item.Confidence, &item.Reason); err != nil {
+			return nil, err
+		}
+		item.Timestamp, _ = time.Parse(time.RFC3339Nano, ts)
+		logs = append(logs, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return logs, nil
 }
 
 func (s *sqliteStore) Close() error {
