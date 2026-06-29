@@ -96,6 +96,7 @@ GOCACHE=/tmp/sek-go-cache go test ./...
 | `--data-dir` | `~/.sek` | Директория global store |
 | `--config` | `.sek/config.json` | Путь к config file |
 | `--http` | empty | Streamable HTTP address, например `:9090`; без флага используется stdio |
+| `--stdio` | `false` | Принудительно использовать stdio, даже если config содержит `mcp.http_addr` |
 | `--llm-provider` | `openai` | `openai` или `anthropic` |
 | `--llm-model` | `gpt-4o` | Model name для chat completions и embeddings |
 | `--llm-key` | `SEK_LLM_KEY` | API key; для локальных серверов можно использовать `none` |

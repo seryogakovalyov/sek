@@ -24,6 +24,7 @@ func main() {
 	projectDir := flag.String("project", "", "project directory (default: cwd)")
 	dataDir := flag.String("data-dir", "", "data directory for global store (default: ~/.sek)")
 	httpAddr := flag.String("http", "", "Streamable HTTP address (e.g. :9090)")
+	stdio := flag.Bool("stdio", false, "force stdio transport, overriding config mcp.http_addr")
 	llmProvider := flag.String("llm-provider", "openai", "LLM provider: openai or anthropic")
 	llmModel := flag.String("llm-model", "gpt-4o", "LLM model name")
 	llmKey := flag.String("llm-key", "", "LLM API key")
@@ -67,6 +68,10 @@ func main() {
 			cfg.DataDir = *dataDir
 		case "http":
 			cfg.MCP.HTTPAddr = *httpAddr
+		case "stdio":
+			if *stdio {
+				cfg.MCP.HTTPAddr = ""
+			}
 		case "llm-provider":
 			cfg.LLM.Provider = llm.ProviderType(*llmProvider)
 		case "llm-model":
