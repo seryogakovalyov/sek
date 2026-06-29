@@ -18,12 +18,15 @@ import (
 	"github.com/seryogakovalyov/sek/internal/llm"
 	"github.com/seryogakovalyov/sek/internal/mcp"
 	"github.com/seryogakovalyov/sek/internal/store"
+	"github.com/seryogakovalyov/sek/internal/storepath"
 )
 
 func main() {
 	// CLI flags
 	projectDir := flag.String("project", "", "project directory (default: cwd)")
 	dataDir := flag.String("data-dir", "", "data directory for global store (default: ~/.sek)")
+	useGlobal := flag.Bool("global", false, "use global store in ~/.sek/store.db")
+	storePathExplicit := flag.String("store", "", "explicit store path (overrides --project and --global)")
 	httpAddr := flag.String("http", "", "Streamable HTTP address (e.g. :9090)")
 	stdio := flag.Bool("stdio", false, "force stdio transport, overriding config mcp.http_addr")
 	llmProvider := flag.String("llm-provider", "openai", "LLM provider: openai or anthropic")
@@ -67,6 +70,10 @@ func main() {
 			cfg.ProjectDir = *projectDir
 		case "data-dir":
 			cfg.DataDir = *dataDir
+		case "global":
+			// handled at store path resolution time
+		case "store":
+			// handled at store path resolution time
 		case "http":
 			cfg.MCP.HTTPAddr = *httpAddr
 		case "stdio":
@@ -84,8 +91,20 @@ func main() {
 		}
 	})
 	cfg.Normalize()
-	if err := validateProjectDir(cfg.ProjectDir); err != nil {
-		log.Fatal(err)
+	effectiveStorePath := *storePathExplicit
+	if effectiveStorePath == "" && !*useGlobal {
+		effectiveStorePath = cfg.Store.Path
+	}
+	pathOpts := storepath.Options{
+		ProjectDir:   cfg.ProjectDir,
+		DataDir:      cfg.DataDirPath(),
+		ExplicitPath: effectiveStorePath,
+		Global:       *useGlobal,
+	}
+	if storepath.RequiresProject(pathOpts) {
+		if err := validateProjectDir(cfg.ProjectDir); err != nil {
+			log.Fatal(err)
+		}
 	}
 
 	// 4. API key fallback
@@ -96,17 +115,13 @@ func main() {
 		log.Fatal("LLM API key required: set --llm-key or SEK_LLM_KEY")
 	}
 
-	// 5. Determine store path and project ID
-	var storePath string
-	if cfg.ProjectDir == "_global" {
-		dataDir := cfg.DataDirPath()
-		if err := os.MkdirAll(dataDir, 0755); err != nil {
-			log.Fatalf("create data dir: %v", err)
-		}
-		storePath = filepath.Join(dataDir, "store.db")
+	// 5. Determine store path. Priority: --store > --global > config store.path > --project.
+	storePath, err := storepath.Resolve(pathOpts)
+	if err != nil {
+		log.Fatalf("resolve store path: %v", err)
+	}
+	if *useGlobal {
 		log.Printf("global store: %s", storePath)
-	} else {
-		storePath = cfg.StorePath()
 	}
 
 	if err := os.MkdirAll(filepath.Dir(storePath), 0755); err != nil {
@@ -162,9 +177,6 @@ func generateSessionID() string {
 }
 
 func validateProjectDir(projectDir string) error {
-	if projectDir == "_global" {
-		return nil
-	}
 	abs, err := filepath.Abs(projectDir)
 	if err != nil {
 		return err

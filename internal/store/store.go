@@ -23,7 +23,7 @@ type KnowledgeStore interface {
 	List(ctx context.Context, level models.KnowledgeLevel, limit int) ([]models.Knowledge, error)
 }
 
-type ProjectStats struct {
+type StoreStats struct {
 	KnowledgeCount int
 	EventCount     int
 	DBSizeBytes    int64
@@ -41,7 +41,7 @@ type Store interface {
 	KnowledgeStore
 	DeleteKnowledge(ctx context.Context, id string) error
 	Clear(ctx context.Context) error
-	Stats(ctx context.Context) (*ProjectStats, error)
+	Stats(ctx context.Context) (*StoreStats, error)
 	GC(ctx context.Context, before string) (*GCResult, error)
 	LogRetrieval(ctx context.Context, log *models.RetrievalLog) error
 	MarkRetrievalUsed(ctx context.Context, id string, knowledgeID string) (bool, error)

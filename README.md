@@ -92,8 +92,10 @@ For llama.cpp embeddings, add these flags on the llama.cpp side:
 
 | Flag | Default | Description |
 |---|---|---|
-| `--project` | `cwd` | Project directory; `_global` enables global store |
-| `--data-dir` | `~/.sek` | Global store directory |
+| `--project` | `cwd` | Project directory (default: current directory) |
+| `--global` | `false` | Use global store in `~/.sek/store.db` |
+| `--store` | empty | Explicit store path (overrides `--project` and `--global`) |
+| `--data-dir` | `~/.sek` | Global store data directory |
 | `--config` | `.sek/config.json` | Config file path |
 | `--http` | empty | Streamable HTTP address, e.g. `:9090`; defaults to stdio |
 | `--stdio` | `false` | Force stdio even if config sets `mcp.http_addr` |
@@ -125,7 +127,7 @@ This is the primary mode for coding agents: memory lives alongside the project, 
 ### Global store
 
 ```bash
-./sekd --project _global
+./sekd --global
 ```
 
 Data lives in:
@@ -146,7 +148,7 @@ Recommendations:
 
 - project-local MCP config or client `cwd` set to project root: use `--project .`;
 - user-level/global MCP config without guaranteed `cwd`: use absolute `--project /path/to/project`;
-- machine-wide shared memory: use `--project _global`.
+- machine-wide shared memory: use `--global`.
 
 ### Project Instructions
 
@@ -270,21 +272,21 @@ sekctl prune
 sekctl prune --force
 
 sekctl query "how is CI configured here?" --llm-key "$KEY"
-sekctl list --project _global
+sekctl list --global
 ```
 
 `sekctl list` and `sekctl log` fetch the last N entries but print them in chronological order: oldest first, newest last.
 
 | Command | Key flags | Description |
 |---|---|---|
-| `init` | `--project` | Create `.sek/` and store |
-| `status` | `--project` | Show counters and DB size |
-| `list` | `--project`, `--level`, `--limit` | Show knowledge entries |
-| `log` | `--project`, `--limit` | Show raw events |
-| `query` | `--project`, `--llm-*`, `--max-tokens`, `--max-entries`, `--trace` | Find experience via reuse engine |
-| `rm <id>` | `--project` | Delete a knowledge entry |
-| `gc` | `--project`, `--older-than`, `--before`, `--dry-run` | Delete old entries, retrieval logs, and orphan-derived knowledge |
-| `prune` | `--project`, `--force` | Delete all events and knowledge from store |
+| `init` | `--project`, `--global`, `--store` | Create `.sek/` and store |
+| `status` | `--project`, `--global`, `--store` | Show counters and DB size |
+| `list` | `--project`, `--global`, `--store`, `--level`, `--limit` | Show knowledge entries |
+| `log` | `--project`, `--global`, `--store`, `--limit` | Show raw events |
+| `query` | `--project`, `--global`, `--store`, `--llm-*`, `--max-tokens`, `--max-entries`, `--trace` | Find experience via reuse engine |
+| `rm <id>` | `--project`, `--global`, `--store` | Delete a knowledge entry |
+| `gc` | `--project`, `--global`, `--store`, `--older-than`, `--before`, `--dry-run` | Delete old entries, retrieval logs, and orphan-derived knowledge |
+| `prune` | `--project`, `--global`, `--store`, `--force` | Delete all events and knowledge from store |
 
 ## Architecture
 
@@ -382,7 +384,7 @@ Local artifacts `sekd`, `sekctl`, and `.sek/` are not committed.
 - [x] `sekctl`: `init`, `status`, `list`, `log`, `query`, `rm`, `gc`, `prune`
 - [x] Session digest on shutdown
 - [x] `.sek/config.json` + CLI overrides
-- [x] Global store: `--project _global`
+- [x] Global store: `--global`
 - [x] Streamable HTTP transport: `--http :9090`
 - [x] GC by TTL: `sekctl gc --older-than 720h`
 

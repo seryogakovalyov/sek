@@ -409,8 +409,8 @@ func (s *sqliteStore) Clear(ctx context.Context) error {
 	return err
 }
 
-func (s *sqliteStore) Stats(ctx context.Context) (*ProjectStats, error) {
-	var stats ProjectStats
+func (s *sqliteStore) Stats(ctx context.Context) (*StoreStats, error) {
+	var stats StoreStats
 	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM knowledge`).Scan(&stats.KnowledgeCount)
 	if err != nil {
 		return nil, err

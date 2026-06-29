@@ -15,6 +15,7 @@ import (
 	"github.com/seryogakovalyov/sek/internal/models"
 	"github.com/seryogakovalyov/sek/internal/reuse"
 	"github.com/seryogakovalyov/sek/internal/store"
+	"github.com/seryogakovalyov/sek/internal/storepath"
 	"github.com/seryogakovalyov/sek/internal/trace"
 )
 
@@ -79,29 +80,23 @@ func projectDir() string {
 	return dir
 }
 
-func storePath(project string) string {
+func storePath(project string, global bool, explicitPath string) string {
 	if project == "" {
 		project = projectDir()
 	}
-	if project == "_global" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			log.Fatalf("home dir: %v", err)
-		}
-		return filepath.Join(home, ".sek", "store.db")
+	path, err := storepath.Resolve(storepath.Options{
+		ProjectDir:   project,
+		ExplicitPath: explicitPath,
+		Global:       global,
+	})
+	if err != nil {
+		log.Fatalf("resolve store path: %v", err)
 	}
-	return filepath.Join(project, ".sek", "store.db")
+	return path
 }
 
-func storeKind(project string) string {
-	if project == "_global" {
-		return "global shared"
-	}
-	return "per-project"
-}
-
-func openStore(project string) store.Store {
-	s, err := store.NewSQLite(storePath(project))
+func openStore(project string, global bool, explicitPath string) store.Store {
+	s, err := store.NewSQLite(storePath(project, global, explicitPath))
 	if err != nil {
 		log.Fatalf("open store: %v", err)
 	}
@@ -113,14 +108,11 @@ func openStore(project string) store.Store {
 func cmdInit(args []string) {
 	fs := flag.NewFlagSet("init", flag.ExitOnError)
 	project := fs.String("project", "", "project directory (default: cwd)")
+	global := fs.Bool("global", false, "use global ~/.sek store")
+	storeFlag := fs.String("store", "", "explicit store path")
 	fs.Parse(args)
 
-	dir := *project
-	if dir == "" {
-		dir = projectDir()
-	}
-
-	sp := storePath(dir)
+	sp := storePath(*project, *global, *storeFlag)
 	if err := os.MkdirAll(filepath.Dir(sp), 0755); err != nil {
 		log.Fatalf("create .sek dir: %v", err)
 	}
@@ -142,11 +134,13 @@ func cmdInit(args []string) {
 func cmdList(args []string) {
 	fs := flag.NewFlagSet("list", flag.ExitOnError)
 	project := fs.String("project", "", "project directory (default: cwd)")
+	global := fs.Bool("global", false, "use global ~/.sek store")
+	storeFlag := fs.String("store", "", "explicit store path")
 	level := fs.String("level", "", "filter by level: observation, lesson, pattern")
 	limit := fs.Int("limit", 20, "max entries")
 	fs.Parse(args)
 
-	s := openStore(*project)
+	s := openStore(*project, *global, *storeFlag)
 	defer s.Close()
 
 	ctx := context.Background()
@@ -179,10 +173,12 @@ func cmdList(args []string) {
 func cmdLog(args []string) {
 	fs := flag.NewFlagSet("log", flag.ExitOnError)
 	project := fs.String("project", "", "project directory (default: cwd)")
+	global := fs.Bool("global", false, "use global ~/.sek store")
+	storeFlag := fs.String("store", "", "explicit store path")
 	limit := fs.Int("limit", 20, "max events")
 	fs.Parse(args)
 
-	s := openStore(*project)
+	s := openStore(*project, *global, *storeFlag)
 	defer s.Close()
 
 	ctx := context.Background()
@@ -227,6 +223,8 @@ func reverseEvents(items []models.Event) {
 func cmdRemove(args []string) {
 	fs := flag.NewFlagSet("rm", flag.ExitOnError)
 	project := fs.String("project", "", "project directory (default: cwd)")
+	global := fs.Bool("global", false, "use global ~/.sek store")
+	storeFlag := fs.String("store", "", "explicit store path")
 	fs.Parse(args)
 
 	id := fs.Arg(0)
@@ -234,7 +232,7 @@ func cmdRemove(args []string) {
 		log.Fatal("usage: sekctl rm <knowledge-id>")
 	}
 
-	s := openStore(*project)
+	s := openStore(*project, *global, *storeFlag)
 	defer s.Close()
 
 	ctx := context.Background()
@@ -249,9 +247,11 @@ func cmdRemove(args []string) {
 func cmdStatus(args []string) {
 	fs := flag.NewFlagSet("status", flag.ExitOnError)
 	project := fs.String("project", "", "project directory (default: cwd)")
+	global := fs.Bool("global", false, "use global ~/.sek store")
+	storeFlag := fs.String("store", "", "explicit store path")
 	fs.Parse(args)
 
-	s := openStore(*project)
+	s := openStore(*project, *global, *storeFlag)
 	defer s.Close()
 
 	ctx := context.Background()
@@ -260,8 +260,7 @@ func cmdStatus(args []string) {
 		log.Fatalf("stats: %v", err)
 	}
 
-	fmt.Printf("Store:       %s\n", storeKind(*project))
-	fmt.Printf("DB path:     %s\n", storePath(*project))
+	fmt.Printf("DB path:     %s\n", storePath(*project, *global, *storeFlag))
 	fmt.Printf("DB size:     %d KB\n", stats.DBSizeBytes/1024)
 	fmt.Printf("Events:      %d\n", stats.EventCount)
 	fmt.Printf("Knowledge:   %d\n", stats.KnowledgeCount)
@@ -272,6 +271,8 @@ func cmdStatus(args []string) {
 func cmdGC(args []string) {
 	fs := flag.NewFlagSet("gc", flag.ExitOnError)
 	project := fs.String("project", "", "project directory (default: cwd)")
+	global := fs.Bool("global", false, "use global ~/.sek store")
+	storeFlag := fs.String("store", "", "explicit store path")
 	olderThan := fs.String("older-than", "", "delete entries older than this duration (e.g. 720h, 168h)")
 	before := fs.String("before", "", "delete entries created before this timestamp (RFC3339 or YYYY-MM-DD)")
 	dryRun := fs.Bool("dry-run", false, "show what would be deleted without deleting")
@@ -284,13 +285,13 @@ func cmdGC(args []string) {
 		log.Fatalf("--older-than and --before are mutually exclusive")
 	}
 
-	sp := storePath(*project)
+	sp := storePath(*project, *global, *storeFlag)
 	if _, err := os.Stat(sp); os.IsNotExist(err) {
 		fmt.Println("no store found at", sp)
 		return
 	}
 
-	s := openStore(*project)
+	s := openStore(*project, *global, *storeFlag)
 	defer s.Close()
 
 	var cutoff time.Time
@@ -375,6 +376,8 @@ func parseDuration(s string) time.Duration {
 func cmdPrune(args []string) {
 	fs := flag.NewFlagSet("prune", flag.ExitOnError)
 	project := fs.String("project", "", "project directory (default: cwd)")
+	global := fs.Bool("global", false, "use global ~/.sek store")
+	storeFlag := fs.String("store", "", "explicit store path")
 	force := fs.Bool("force", false, "skip confirmation")
 	fs.Parse(args)
 
@@ -388,7 +391,7 @@ func cmdPrune(args []string) {
 		}
 	}
 
-	s := openStore(*project)
+	s := openStore(*project, *global, *storeFlag)
 	defer s.Close()
 
 	ctx := context.Background()
@@ -403,6 +406,8 @@ func cmdPrune(args []string) {
 func cmdQuery(args []string) {
 	fs := flag.NewFlagSet("query", flag.ExitOnError)
 	project := fs.String("project", "", "project directory (default: cwd)")
+	global := fs.Bool("global", false, "use global ~/.sek store")
+	storeFlag := fs.String("store", "", "explicit store path")
 	llmProvider := fs.String("llm-provider", "openai", "LLM provider")
 	llmModel := fs.String("llm-model", "gpt-4o", "LLM model")
 	llmKey := fs.String("llm-key", "", "LLM API key")
@@ -436,7 +441,7 @@ func cmdQuery(args []string) {
 	}
 	embedder := llm.NewOpenAIEmbedder(cfg.APIKey, cfg.BaseURL, cfg.Model)
 
-	s := openStore(*project)
+	s := openStore(*project, *global, *storeFlag)
 	defer s.Close()
 
 	engine := reuse.NewEngine(provider, embedder, s)

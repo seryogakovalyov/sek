@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/seryogakovalyov/sek/internal/llm"
+	"github.com/seryogakovalyov/sek/internal/storepath"
 )
 
 type Config struct {
@@ -26,11 +27,6 @@ type Config struct {
 
 func DefaultPath(projectDir string) string {
 	return filepath.Join(projectDir, ".sek", "config.json")
-}
-
-func defaultDataDir() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".sek")
 }
 
 func Load(path string) (*Config, error) {
@@ -56,18 +52,15 @@ func (c *Config) Save(path string) error {
 	return os.WriteFile(path, data, 0644)
 }
 
-func (c *Config) StorePath() string {
-	if c.Store.Path != "" {
-		return c.Store.Path
-	}
-	return filepath.Join(c.ProjectDir, ".sek", "store.db")
-}
-
 func (c *Config) DataDirPath() string {
 	if c.DataDir != "" {
 		return c.DataDir
 	}
-	return defaultDataDir()
+	dataDir, err := storepath.DefaultDataDir()
+	if err != nil {
+		return filepath.Join(".sek")
+	}
+	return dataDir
 }
 
 func (c *Config) Normalize() {
