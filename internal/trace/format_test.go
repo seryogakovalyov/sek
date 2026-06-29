@@ -10,6 +10,7 @@ import (
 
 func TestFormatKnowledgeIncludesSourceTraceAndWhy(t *testing.T) {
 	k := models.Knowledge{
+		ID:         "lesson-1",
 		Level:      models.LevelLesson,
 		CreatedAt:  time.Date(2026, 6, 28, 0, 0, 0, 0, time.UTC),
 		Content:    "Use anchored .gitignore patterns.",
@@ -23,6 +24,7 @@ func TestFormatKnowledgeIncludesSourceTraceAndWhy(t *testing.T) {
 
 	for _, want := range []string{
 		"[lesson] 2026-06-28 (score: 1.234)",
+		"id: lesson-1",
 		"Use anchored .gitignore patterns.",
 		"Trace:",
 		"- source_ids: obs-1, obs-2",
@@ -38,6 +40,7 @@ func TestFormatKnowledgeIncludesSourceTraceAndWhy(t *testing.T) {
 
 func TestFormatKnowledgeCanOmitScoreReason(t *testing.T) {
 	k := models.Knowledge{
+		ID:        "obs-1",
 		Level:     models.LevelObservation,
 		CreatedAt: time.Date(2026, 6, 28, 0, 0, 0, 0, time.UTC),
 		Content:   "Observation.",

@@ -325,6 +325,7 @@ func cmdGC(args []string) {
 	fmt.Printf("  knowledge deleted: %d\n", result.KnowledgeDeleted)
 	fmt.Printf("  events deleted:    %d\n", result.EventsDeleted)
 	fmt.Printf("  orphans deleted:   %d\n", result.OrphansDeleted)
+	fmt.Printf("  retrieval deleted: %d\n", result.RetrievalDeleted)
 }
 
 func parseTimestamp(s string) (time.Time, error) {

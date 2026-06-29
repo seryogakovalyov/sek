@@ -94,8 +94,12 @@ func newMCPServer(st store.Store, provider llm.Provider, embedder llm.Embedder, 
 			return mcp.NewToolResultError("retrieval_id and knowledge_id are required"), nil
 		}
 
-		if err := st.MarkRetrievalUsed(ctx, retrievalID, knowledgeID); err != nil {
+		added, err := st.MarkRetrievalUsed(ctx, retrievalID, knowledgeID)
+		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("mark used failed: %v", err)), nil
+		}
+		if !added {
+			return mcp.NewToolResultText("already marked as used"), nil
 		}
 		if err := st.IncrementUsageCount(ctx, knowledgeID); err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("increment usage count: %v", err)), nil
@@ -263,14 +267,17 @@ func logRetrieval(ctx context.Context, st store.Store, sessionID, task string, k
 	data, _ := json.Marshal(entries)
 
 	id := uuid.New().String()
-	st.LogRetrieval(ctx, &models.RetrievalLog{
+	if err := st.LogRetrieval(ctx, &models.RetrievalLog{
 		ID:        id,
 		SessionID: sessionID,
 		Timestamp: time.Now(),
 		Task:      task,
 		Results:   string(data),
 		UsedIDs:   "[]",
-	})
+	}); err != nil {
+		log.Printf("retrieval telemetry warning: %v", err)
+		return ""
+	}
 	return id
 }
 

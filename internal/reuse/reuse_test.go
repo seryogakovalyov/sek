@@ -71,3 +71,33 @@ func TestApplyScoreAdjustments(t *testing.T) {
 		t.Fatalf("expected new-high as top result, got %s", adjusted[0].ID)
 	}
 }
+
+func TestApplyScoreAdjustmentsBoostsUsedKnowledge(t *testing.T) {
+	now := time.Now()
+	knowledge := []models.Knowledge{
+		{
+			ID:         "unused",
+			Content:    "unused",
+			Score:      0.8,
+			CreatedAt:  now,
+			Importance: models.ImportanceNormal,
+		},
+		{
+			ID:         "used",
+			Content:    "used",
+			Score:      0.8,
+			CreatedAt:  now,
+			Importance: models.ImportanceNormal,
+			UsageCount: 3,
+		},
+	}
+
+	adjusted := applyScoreAdjustments(knowledge)
+
+	if adjusted[0].ID != "used" {
+		t.Fatalf("expected used knowledge first, got %s", adjusted[0].ID)
+	}
+	if adjusted[0].Score <= adjusted[1].Score {
+		t.Fatalf("expected usage boost to increase score: used=%f unused=%f", adjusted[0].Score, adjusted[1].Score)
+	}
+}

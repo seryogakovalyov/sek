@@ -13,7 +13,7 @@ func FormatKnowledge(k models.Knowledge, includeScore bool) string {
 		header += fmt.Sprintf(" (score: %.3f)", k.Score)
 	}
 
-	lines := []string{header, "---", k.Content}
+	lines := []string{header, "---", "id: " + k.ID, k.Content}
 
 	traceLines := SourceTrace(k, includeScore)
 	if len(traceLines) > 0 {

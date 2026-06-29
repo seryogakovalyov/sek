@@ -33,6 +33,7 @@ type GCResult struct {
 	KnowledgeDeleted int64
 	EventsDeleted    int64
 	OrphansDeleted   int64
+	RetrievalDeleted int64
 }
 
 type Store interface {
@@ -43,7 +44,7 @@ type Store interface {
 	Stats(ctx context.Context) (*ProjectStats, error)
 	GC(ctx context.Context, before string) (*GCResult, error)
 	LogRetrieval(ctx context.Context, log *models.RetrievalLog) error
-	MarkRetrievalUsed(ctx context.Context, id string, knowledgeID string) error
+	MarkRetrievalUsed(ctx context.Context, id string, knowledgeID string) (bool, error)
 	IncrementUsageCount(ctx context.Context, id string) error
 	Close() error
 }

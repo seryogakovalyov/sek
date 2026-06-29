@@ -20,6 +20,11 @@ type sqliteStore struct {
 	db *sql.DB
 }
 
+type retrievalResultEntry struct {
+	ID    string  `json:"id"`
+	Score float64 `json:"score"`
+}
+
 func NewSQLite(path string) (Store, error) {
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
@@ -334,6 +339,10 @@ func (s *sqliteStore) Clear(ctx context.Context) error {
 		return err
 	}
 	_, err = s.db.ExecContext(ctx, `DELETE FROM events`)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `DELETE FROM retrieval_log`)
 	return err
 }
 
@@ -433,6 +442,12 @@ func (s *sqliteStore) GC(ctx context.Context, before string) (*GCResult, error) 
 	}
 	result.EventsDeleted, _ = del.RowsAffected()
 
+	del, err = s.db.ExecContext(ctx, `DELETE FROM retrieval_log WHERE timestamp < ?`, before)
+	if err != nil {
+		return nil, err
+	}
+	result.RetrievalDeleted, _ = del.RowsAffected()
+
 	orphans, err := s.deleteOrphanDerived(ctx)
 	if err != nil {
 		return nil, err
@@ -525,30 +540,57 @@ func (s *sqliteStore) LogRetrieval(ctx context.Context, log *models.RetrievalLog
 	return err
 }
 
-func (s *sqliteStore) MarkRetrievalUsed(ctx context.Context, id string, knowledgeID string) error {
-	var usedIDs string
-	err := s.db.QueryRowContext(ctx, `SELECT used_ids FROM retrieval_log WHERE id = ?`, id).Scan(&usedIDs)
+func (s *sqliteStore) MarkRetrievalUsed(ctx context.Context, id string, knowledgeID string) (bool, error) {
+	var results, usedIDs string
+	err := s.db.QueryRowContext(ctx, `SELECT results, used_ids FROM retrieval_log WHERE id = ?`, id).Scan(&results, &usedIDs)
 	if err != nil {
-		return fmt.Errorf("retrieval log not found: %w", err)
+		return false, fmt.Errorf("retrieval log not found: %w", err)
+	}
+
+	var returned []retrievalResultEntry
+	if err := json.Unmarshal([]byte(results), &returned); err != nil {
+		return false, fmt.Errorf("parse retrieval results: %w", err)
+	}
+	found := false
+	for _, result := range returned {
+		if result.ID == knowledgeID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return false, fmt.Errorf("knowledge %s was not returned by retrieval %s", knowledgeID, id)
 	}
 
 	var ids []string
-	json.Unmarshal([]byte(usedIDs), &ids)
+	if err := json.Unmarshal([]byte(usedIDs), &ids); err != nil {
+		return false, fmt.Errorf("parse used ids: %w", err)
+	}
 
 	for _, existing := range ids {
 		if existing == knowledgeID {
-			return nil
+			return false, nil
 		}
 	}
 	ids = append(ids, knowledgeID)
 
 	data, _ := json.Marshal(ids)
 	_, err = s.db.ExecContext(ctx, `UPDATE retrieval_log SET used_ids = ? WHERE id = ?`, string(data), id)
-	return err
+	return true, err
 }
 
 func (s *sqliteStore) IncrementUsageCount(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE knowledge SET usage_count = COALESCE(usage_count, 0) + 1 WHERE id = ?`, id)
+	result, err := s.db.ExecContext(ctx, `UPDATE knowledge SET usage_count = COALESCE(usage_count, 0) + 1 WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return fmt.Errorf("knowledge not found: %s", id)
+	}
 	return err
 }
 

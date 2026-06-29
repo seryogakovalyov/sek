@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -352,4 +353,162 @@ func TestClear(t *testing.T) {
 	if stats.EventCount != 0 {
 		t.Fatalf("expected 0 events, got %d", stats.EventCount)
 	}
+}
+
+func TestRetrievalUsageIsValidatedAndIdempotent(t *testing.T) {
+	s := newTestStore(t)
+	defer s.Close()
+	ctx := context.Background()
+
+	k := &models.Knowledge{
+		ID:        "obs-1",
+		Level:     models.LevelObservation,
+		CreatedAt: time.Now(),
+		Content:   "test observation",
+	}
+	if err := s.Save(ctx, k); err != nil {
+		t.Fatal(err)
+	}
+
+	results, _ := json.Marshal([]retrievalResultEntry{{ID: "obs-1", Score: 0.9}})
+	if err := s.LogRetrieval(ctx, &models.RetrievalLog{
+		ID:        "ret-1",
+		SessionID: "s1",
+		Timestamp: time.Now(),
+		Task:      "test task",
+		Results:   string(results),
+		UsedIDs:   "[]",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	added, err := s.MarkRetrievalUsed(ctx, "ret-1", "obs-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !added {
+		t.Fatal("expected first mark to add usage")
+	}
+	if err := s.IncrementUsageCount(ctx, "obs-1"); err != nil {
+		t.Fatal(err)
+	}
+
+	added, err = s.MarkRetrievalUsed(ctx, "ret-1", "obs-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if added {
+		t.Fatal("expected duplicate mark to be idempotent")
+	}
+
+	list, err := s.List(ctx, "", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if list[0].UsageCount != 1 {
+		t.Fatalf("expected usage_count 1, got %d", list[0].UsageCount)
+	}
+
+	usedIDs := queryString(t, s, `SELECT used_ids FROM retrieval_log WHERE id = 'ret-1'`)
+	if usedIDs != `["obs-1"]` {
+		t.Fatalf("unexpected used_ids: %s", usedIDs)
+	}
+}
+
+func TestRetrievalUsageRejectsInvalidIDs(t *testing.T) {
+	s := newTestStore(t)
+	defer s.Close()
+	ctx := context.Background()
+
+	results, _ := json.Marshal([]retrievalResultEntry{{ID: "obs-1", Score: 0.9}})
+	if err := s.LogRetrieval(ctx, &models.RetrievalLog{
+		ID:        "ret-1",
+		SessionID: "s1",
+		Timestamp: time.Now(),
+		Task:      "test task",
+		Results:   string(results),
+		UsedIDs:   "[]",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := s.MarkRetrievalUsed(ctx, "ret-1", "obs-missing"); err == nil {
+		t.Fatal("expected error for knowledge not returned by retrieval")
+	}
+	if err := s.IncrementUsageCount(ctx, "obs-missing"); err == nil {
+		t.Fatal("expected error for missing knowledge")
+	}
+}
+
+func TestClearDeletesRetrievalLog(t *testing.T) {
+	s := newTestStore(t)
+	defer s.Close()
+	ctx := context.Background()
+
+	if err := s.LogRetrieval(ctx, &models.RetrievalLog{
+		ID:        "ret-1",
+		SessionID: "s1",
+		Timestamp: time.Now(),
+		Task:      "test task",
+		Results:   "[]",
+		UsedIDs:   "[]",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.Clear(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := countRows(t, s, "retrieval_log"); got != 0 {
+		t.Fatalf("expected retrieval_log to be empty, got %d", got)
+	}
+}
+
+func TestGCDeletesOldRetrievalLog(t *testing.T) {
+	s := newTestStore(t)
+	defer s.Close()
+	ctx := context.Background()
+
+	oldTime := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	newTime := time.Date(2026, 6, 29, 0, 0, 0, 0, time.UTC)
+	for _, logEntry := range []models.RetrievalLog{
+		{ID: "old", SessionID: "s1", Timestamp: oldTime, Task: "old", Results: "[]", UsedIDs: "[]"},
+		{ID: "new", SessionID: "s1", Timestamp: newTime, Task: "new", Results: "[]", UsedIDs: "[]"},
+	} {
+		entry := logEntry
+		if err := s.LogRetrieval(ctx, &entry); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	result, err := s.GC(ctx, time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC).Format(time.RFC3339Nano))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.RetrievalDeleted != 1 {
+		t.Fatalf("expected 1 retrieval deleted, got %d", result.RetrievalDeleted)
+	}
+	if got := countRows(t, s, "retrieval_log"); got != 1 {
+		t.Fatalf("expected one retrieval log to remain, got %d", got)
+	}
+}
+
+func queryString(t *testing.T, s Store, query string) string {
+	t.Helper()
+	sqlite := s.(*sqliteStore)
+	var value string
+	if err := sqlite.db.QueryRow(query).Scan(&value); err != nil {
+		t.Fatal(err)
+	}
+	return value
+}
+
+func countRows(t *testing.T, s Store, table string) int {
+	t.Helper()
+	sqlite := s.(*sqliteStore)
+	var count int
+	if err := sqlite.db.QueryRow(`SELECT COUNT(*) FROM ` + table).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	return count
 }

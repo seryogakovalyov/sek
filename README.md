@@ -259,7 +259,7 @@ sekctl list --project _global
 | `log` | `--project`, `--limit` | Показать raw events |
 | `query` | `--project`, `--llm-*`, `--max-tokens`, `--max-entries` | Найти опыт через reuse engine |
 | `rm <id>` | `--project` | Удалить knowledge entry |
-| `gc` | `--project`, `--older-than`, `--before`, `--dry-run` | Удалить старые entries и orphan-derived knowledge |
+| `gc` | `--project`, `--older-than`, `--before`, `--dry-run` | Удалить старые entries, retrieval logs и orphan-derived knowledge |
 | `prune` | `--project`, `--force` | Удалить все events и knowledge из store |
 
 ## Архитектура
