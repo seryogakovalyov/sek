@@ -1,4 +1,4 @@
-module github.com/anomalyco/sek
+module github.com/seryogakovalyov/sek
 
 go 1.26.4
 

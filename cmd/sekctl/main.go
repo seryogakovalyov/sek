@@ -11,11 +11,11 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/anomalyco/sek/internal/llm"
-	"github.com/anomalyco/sek/internal/models"
-	"github.com/anomalyco/sek/internal/reuse"
-	"github.com/anomalyco/sek/internal/store"
-	"github.com/anomalyco/sek/internal/trace"
+	"github.com/seryogakovalyov/sek/internal/llm"
+	"github.com/seryogakovalyov/sek/internal/models"
+	"github.com/seryogakovalyov/sek/internal/reuse"
+	"github.com/seryogakovalyov/sek/internal/store"
+	"github.com/seryogakovalyov/sek/internal/trace"
 )
 
 func main() {

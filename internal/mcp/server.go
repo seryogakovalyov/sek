@@ -12,13 +12,13 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
-	"github.com/anomalyco/sek/internal/capture"
-	"github.com/anomalyco/sek/internal/distill"
-	"github.com/anomalyco/sek/internal/llm"
-	"github.com/anomalyco/sek/internal/models"
-	"github.com/anomalyco/sek/internal/reuse"
-	"github.com/anomalyco/sek/internal/store"
-	"github.com/anomalyco/sek/internal/trace"
+	"github.com/seryogakovalyov/sek/internal/capture"
+	"github.com/seryogakovalyov/sek/internal/distill"
+	"github.com/seryogakovalyov/sek/internal/llm"
+	"github.com/seryogakovalyov/sek/internal/models"
+	"github.com/seryogakovalyov/sek/internal/reuse"
+	"github.com/seryogakovalyov/sek/internal/store"
+	"github.com/seryogakovalyov/sek/internal/trace"
 )
 
 func newMCPServer(st store.Store, provider llm.Provider, embedder llm.Embedder, modelName string, serverSessionID string) *server.MCPServer {

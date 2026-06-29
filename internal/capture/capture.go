@@ -6,9 +6,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/anomalyco/sek/internal/models"
-	"github.com/anomalyco/sek/internal/redact"
-	"github.com/anomalyco/sek/internal/store"
+	"github.com/seryogakovalyov/sek/internal/models"
+	"github.com/seryogakovalyov/sek/internal/redact"
+	"github.com/seryogakovalyov/sek/internal/store"
 )
 
 type Service struct {

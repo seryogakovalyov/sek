@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/anomalyco/sek/internal/llm"
+	"github.com/seryogakovalyov/sek/internal/llm"
 )
 
 type Config struct {

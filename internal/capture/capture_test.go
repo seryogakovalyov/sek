@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anomalyco/sek/internal/models"
-	"github.com/anomalyco/sek/internal/store"
+	"github.com/seryogakovalyov/sek/internal/models"
+	"github.com/seryogakovalyov/sek/internal/store"
 )
 
 func TestCaptureRedactsSecretsBeforeStore(t *testing.T) {

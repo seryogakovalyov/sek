@@ -12,8 +12,8 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/anomalyco/sek/internal/models"
-	"github.com/anomalyco/sek/internal/redact"
+	"github.com/seryogakovalyov/sek/internal/models"
+	"github.com/seryogakovalyov/sek/internal/redact"
 	_ "modernc.org/sqlite"
 )
 

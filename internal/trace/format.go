@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/anomalyco/sek/internal/models"
+	"github.com/seryogakovalyov/sek/internal/models"
 )
 
 func FormatKnowledge(k models.Knowledge, includeScore bool) string {

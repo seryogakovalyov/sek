@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anomalyco/sek/internal/models"
-	"github.com/anomalyco/sek/internal/store"
+	"github.com/seryogakovalyov/sek/internal/models"
+	"github.com/seryogakovalyov/sek/internal/store"
 )
 
 func newTestStore(t *testing.T) store.Store {

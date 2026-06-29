@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anomalyco/sek/internal/models"
+	"github.com/seryogakovalyov/sek/internal/models"
 )
 
 func TestRecencyFactor(t *testing.T) {

@@ -13,11 +13,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/anomalyco/sek/internal/config"
-	"github.com/anomalyco/sek/internal/distill"
-	"github.com/anomalyco/sek/internal/llm"
-	"github.com/anomalyco/sek/internal/mcp"
-	"github.com/anomalyco/sek/internal/store"
+	"github.com/seryogakovalyov/sek/internal/config"
+	"github.com/seryogakovalyov/sek/internal/distill"
+	"github.com/seryogakovalyov/sek/internal/llm"
+	"github.com/seryogakovalyov/sek/internal/mcp"
+	"github.com/seryogakovalyov/sek/internal/store"
 )
 
 func main() {

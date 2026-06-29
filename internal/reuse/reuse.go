@@ -7,9 +7,9 @@ import (
 	"sort"
 	"time"
 
-	"github.com/anomalyco/sek/internal/llm"
-	"github.com/anomalyco/sek/internal/models"
-	"github.com/anomalyco/sek/internal/store"
+	"github.com/seryogakovalyov/sek/internal/llm"
+	"github.com/seryogakovalyov/sek/internal/models"
+	"github.com/seryogakovalyov/sek/internal/store"
 )
 
 const (

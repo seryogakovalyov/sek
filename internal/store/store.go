@@ -3,7 +3,7 @@ package store
 import (
 	"context"
 
-	"github.com/anomalyco/sek/internal/models"
+	"github.com/seryogakovalyov/sek/internal/models"
 )
 
 type EventStore interface {
