@@ -294,6 +294,51 @@ SEK is a generic experience runtime. The current built-in module is `engineering
 
 Modules describe the type of memory and its vocabulary. They do not introduce public `namespace` or `project_id` parameters, and they do not change the storage schema. A SQLite store remains one context.
 
+### Module Routing Principles
+
+Module routing answers one question:
+
+> What kind of memory is this observation?
+
+This is different from where the event came from. A web UI, MCP client, CLI command, or agent name is a source/channel. The module is determined by the meaning of the distilled knowledge.
+
+The routing layer is intentionally not part of the public MCP API yet. Agents should not pass `module`, `namespace`, or `project_id` in tool calls. The next step is to test whether the distillation model can classify observations consistently before adding schema or retrieval changes.
+
+The test fixture for this lives in `internal/distill/testdata/golden_module_routing.json`.
+
+Run deterministic prompt/parser tests with `go test ./...`. To run the same routing cases against a real model, opt in explicitly:
+
+```bash
+SEK_MODULE_ROUTE_EVAL=1 \
+SEK_LLM_PROVIDER=openai \
+SEK_LLM_KEY=none \
+SEK_LLM_BASE_URL=http://localhost:8000/v1 \
+SEK_LLM_MODEL=Qwen3.6-35B-A3B-Unsloth \
+go test ./internal/distill -run TestModuleRouteGoldenCasesWithRealModel
+```
+
+Initial module candidates:
+
+| Module | Use for |
+|---|---|
+| `engineering` | Code, architecture, bugs, tests, build systems, APIs, repository conventions |
+| `local-ai` | Local model serving, llama.cpp/vLLM, embeddings endpoints, GPU/runtime setup, model quirks |
+| `agent-behavior` | How Codex, Claude Code, Cursor, Opencode, or other agents use instructions and tools |
+| `personal` | Durable user preferences, working style, recurring constraints |
+| `company` | Team/company process, release policy, ownership, communication norms |
+
+Examples for future golden evals:
+
+| Observation | Expected module | Why |
+|---|---|---|
+| `Codex MCP may start sekd from /, so --global must not validate project cwd.` | `engineering` | It is a storage/runtime bug fix in the codebase |
+| `llama.cpp embeddings require --embeddings --pooling mean for SEK vector search.` | `local-ai` | It is local model serving setup |
+| `Claude Code captures events reliably after AGENTS.md includes an explicit final-response checkpoint.` | `agent-behavior` | It describes agent behavior under instructions |
+| `The user prefers concise recommendations before implementation when tradeoffs are unclear.` | `personal` | It is a durable user working preference |
+| `The AI initiatives group wants repo announcements framed as open-source runtime feedback requests.` | `company` | It is a communication/process convention |
+
+For now, the built-in `engineering` module remains the default. If routing confidence is low, prefer `engineering` over inventing a new module. Store source/channel separately from module when that data becomes useful.
+
 ```text
 MCP client
   ├─ stdio

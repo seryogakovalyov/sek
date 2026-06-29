@@ -1,0 +1,51 @@
+[
+  {
+    "name": "engineering_storage_runtime_bug",
+    "observation": "Codex MCP may start sekd from /, so --global must not validate project cwd.",
+    "expected_module": "engineering",
+    "confidence": 0.95,
+    "reason": "storage/runtime bug fix in the codebase"
+  },
+  {
+    "name": "local_ai_llama_embeddings",
+    "observation": "llama.cpp embeddings require --embeddings --pooling mean for SEK vector search.",
+    "expected_module": "local-ai",
+    "confidence": 0.95,
+    "reason": "local model serving and embeddings setup"
+  },
+  {
+    "name": "agent_behavior_agents_file",
+    "observation": "Claude Code captures events reliably after AGENTS.md includes an explicit final-response checkpoint.",
+    "expected_module": "agent-behavior",
+    "confidence": 0.92,
+    "reason": "agent behavior under project instructions"
+  },
+  {
+    "name": "personal_working_preference",
+    "observation": "The user prefers concise recommendations before implementation when tradeoffs are unclear.",
+    "expected_module": "personal",
+    "confidence": 0.9,
+    "reason": "durable user working preference"
+  },
+  {
+    "name": "company_announcement_norm",
+    "observation": "The AI initiatives group wants repo announcements framed as open-source runtime feedback requests.",
+    "expected_module": "company",
+    "confidence": 0.86,
+    "reason": "team communication convention"
+  },
+  {
+    "name": "source_channel_is_not_module",
+    "observation": "A note entered through the llama.cpp web UI says the user wants shorter final answers unless implementation details are requested.",
+    "expected_module": "personal",
+    "confidence": 0.82,
+    "reason": "web UI is only the source; the content is a user preference"
+  },
+  {
+    "name": "default_to_engineering_when_unclear",
+    "observation": "Keep the default module when a note does not clearly belong to a specialized memory type.",
+    "expected_module": "engineering",
+    "confidence": 0.55,
+    "reason": "low-confidence routing should fall back to engineering"
+  }
+]

@@ -1,6 +1,12 @@
 package models
 
-const ModuleEngineering = "engineering"
+const (
+	ModuleEngineering   = "engineering"
+	ModuleLocalAI       = "local-ai"
+	ModuleAgentBehavior = "agent-behavior"
+	ModulePersonal      = "personal"
+	ModuleCompany       = "company"
+)
 
 type Module struct {
 	Name        string           `json:"name"`
@@ -28,4 +34,10 @@ func DefaultEngineeringModule() Module {
 			EventSuccessfulFix,
 		},
 	}
+}
+
+type ModuleRoute struct {
+	Module     string  `json:"module"`
+	Confidence float64 `json:"confidence,omitempty"`
+	Reason     string  `json:"reason,omitempty"`
 }

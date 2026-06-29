@@ -33,3 +33,17 @@ func TestDefaultEngineeringModule(t *testing.T) {
 		}
 	}
 }
+
+func TestKnownModuleConstants(t *testing.T) {
+	for _, module := range []string{
+		ModuleEngineering,
+		ModuleLocalAI,
+		ModuleAgentBehavior,
+		ModulePersonal,
+		ModuleCompany,
+	} {
+		if module == "" {
+			t.Fatal("module constant must not be empty")
+		}
+	}
+}
