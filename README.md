@@ -148,6 +148,18 @@ Recommendations:
 - user-level/global MCP config without guaranteed `cwd`: use absolute `--project /path/to/project`;
 - machine-wide shared memory: use `--project _global`.
 
+### Project Instructions
+
+For stable capture behavior, add an `AGENTS.md` file to the project or merge its SEK section into your existing agent instructions. Tool descriptions help, but project-level instructions are more likely to shape the agent workflow.
+
+Recommended rules:
+
+- call `query_experience` before project-specific tasks;
+- before the final response, call `capture_event` if the task produced reusable project experience;
+- call `report_usage` after applying a returned knowledge entry;
+- capture concrete paths, commands, errors, root causes, and rationale;
+- skip routine edits and noisy per-tool-call logging.
+
 ### Claude Code
 
 ```json

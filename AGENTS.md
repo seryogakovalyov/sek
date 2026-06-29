@@ -8,6 +8,9 @@ SEK remembers what you learn across sessions. Use it deliberately.
 
 Call AFTER something notable happens:
 
+Before your final response, check whether the task produced reusable project experience.
+If yes, call `capture_event` before replying, even if the user did not explicitly ask you to remember it.
+
 | Trigger | What to put in `content` |
 |---|---|
 | **Bug/error encountered** | Error message, what you tried, what caused it |
