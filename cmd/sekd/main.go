@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -83,6 +84,9 @@ func main() {
 		}
 	})
 	cfg.Normalize()
+	if err := validateProjectDir(cfg.ProjectDir); err != nil {
+		log.Fatal(err)
+	}
 
 	// 4. API key fallback
 	if cfg.LLM.APIKey == "" {
@@ -155,4 +159,18 @@ func generateSessionID() string {
 	b := make([]byte, 8)
 	rand.Read(b)
 	return "sek-" + hex.EncodeToString(b)
+}
+
+func validateProjectDir(projectDir string) error {
+	if projectDir == "_global" {
+		return nil
+	}
+	abs, err := filepath.Abs(projectDir)
+	if err != nil {
+		return err
+	}
+	if abs == string(filepath.Separator) {
+		return fmt.Errorf("cannot use %q as project directory; pass --project or configure the MCP client cwd", abs)
+	}
+	return nil
 }
