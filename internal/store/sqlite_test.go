@@ -125,6 +125,50 @@ func assertRedacted(t *testing.T, content string, leaked ...string) {
 	}
 }
 
+func TestSearchMatchesQueryTokens(t *testing.T) {
+	s := newTestStore(t)
+	defer s.Close()
+	ctx := context.Background()
+	now := time.Now()
+
+	entries := []models.Knowledge{
+		{
+			ID:         "generic-mcp",
+			Level:      models.LevelLesson,
+			CreatedAt:  now,
+			Content:    "MCP startup was fixed by adding an explicit stdio flag.",
+			Importance: models.ImportanceHigh,
+		},
+		{
+			ID:         "retrieval-telemetry",
+			Level:      models.LevelLesson,
+			CreatedAt:  now.Add(-time.Hour),
+			Content:    "Retrieval telemetry writes retrieval_log entries and report_usage increments usage_count for feedback scoring.",
+			SourceIDs:  []string{"internal/mcp/server.go", "internal/store/sqlite.go"},
+			Importance: models.ImportanceNormal,
+		},
+	}
+	for i := range entries {
+		if err := s.Save(ctx, &entries[i]); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	results, err := s.Search(ctx, "review retrieval telemetry report_usage usage_count feedback loop", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) == 0 {
+		t.Fatal("expected keyword results")
+	}
+	if results[0].ID != "retrieval-telemetry" {
+		t.Fatalf("expected retrieval-telemetry first, got %s", results[0].ID)
+	}
+	if results[0].Score <= 0 {
+		t.Fatalf("expected positive keyword score, got %f", results[0].Score)
+	}
+}
+
 func TestFindSimilar(t *testing.T) {
 	s := newTestStore(t)
 	defer s.Close()

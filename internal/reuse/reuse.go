@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"sort"
 	"time"
 
 	"github.com/anomalyco/sek/internal/llm"
@@ -12,10 +13,12 @@ import (
 )
 
 const (
-	recencyHalfLife  = 30 * 24 * time.Hour
-	maxRecencyBoost  = 0.3
-	maxUsageBoost    = 0.3
-	usageBoostPerUse = 0.05
+	recencyHalfLife       = 30 * 24 * time.Hour
+	maxRecencyBoost       = 0.10
+	maxUsageBoost         = 0.20
+	usageBoostPerUse      = 0.04
+	importanceBoostFactor = 0.19
+	hybridCandidateFactor = 3
 )
 
 type Engine struct {
@@ -29,51 +32,30 @@ func NewEngine(llm llm.Provider, embedder llm.Embedder, s store.KnowledgeStore) 
 }
 
 func (e *Engine) Query(ctx context.Context, req models.ReuseRequest) (*models.ReuseResult, error) {
-	var knowledge []models.Knowledge
 	limit := req.Budget.MaxEntries
 	if limit <= 0 {
 		limit = 10
 	}
+	candidateLimit := limit * hybridCandidateFactor
 
-	// Phase 1: vector search
+	var vectorResults []models.Knowledge
 	embeddings, embedErr := e.embedder.Embed(ctx, []string{req.Task})
 	if embedErr == nil && len(embeddings) > 0 {
-		k, err := e.store.SearchSimilar(ctx, embeddings[0], limit)
+		k, err := e.store.SearchSimilar(ctx, embeddings[0], candidateLimit)
 		if err == nil {
-			knowledge = k
+			vectorResults = k
 		}
 	}
 
-	// Phase 2: supplement with keyword results if we don't have enough
-	if len(knowledge) < limit {
-		needed := limit - len(knowledge)
-		k, err := e.store.Search(ctx, req.Task, needed)
-		if err != nil {
-			return nil, fmt.Errorf("search: %w", err)
-		}
-
-		// merge, dedup by ID
-		seen := make(map[string]bool, len(knowledge))
-		for _, kn := range knowledge {
-			seen[kn.ID] = true
-		}
-		for _, kn := range k {
-			if !seen[kn.ID] {
-				kn.Score = 0.1 // low default score for keyword hits
-				knowledge = append(knowledge, kn)
-				seen[kn.ID] = true
-			}
-		}
+	keywordResults, err := e.store.Search(ctx, req.Task, candidateLimit)
+	if err != nil {
+		return nil, fmt.Errorf("search: %w", err)
 	}
 
+	knowledge := mergeHybridResults(vectorResults, keywordResults)
 	knowledge = applyScoreAdjustments(knowledge)
-	// re-sort after merge
-	for i := 0; i < len(knowledge); i++ {
-		for j := i + 1; j < len(knowledge); j++ {
-			if knowledge[j].Score > knowledge[i].Score {
-				knowledge[i], knowledge[j] = knowledge[j], knowledge[i]
-			}
-		}
+	if limit < len(knowledge) {
+		knowledge = knowledge[:limit]
 	}
 
 	if req.Budget.MaxTokens > 0 {
@@ -91,24 +73,77 @@ func (e *Engine) Query(ctx context.Context, req models.ReuseRequest) (*models.Re
 	}, nil
 }
 
+func mergeHybridResults(vectorResults, keywordResults []models.Knowledge) []models.Knowledge {
+	merged := make(map[string]models.Knowledge, len(vectorResults)+len(keywordResults))
+
+	for _, k := range vectorResults {
+		k.Breakdown.VectorScore = k.Score
+		k.Breakdown.MatchTypes = appendMatchType(k.Breakdown.MatchTypes, "vector")
+		merged[k.ID] = k
+	}
+
+	for _, k := range keywordResults {
+		existing, ok := merged[k.ID]
+		if !ok {
+			k.Breakdown.KeywordScore = k.Score
+			k.Breakdown.MatchTypes = appendMatchType(k.Breakdown.MatchTypes, "keyword")
+			merged[k.ID] = k
+			continue
+		}
+		if k.Score > existing.Breakdown.KeywordScore {
+			existing.Breakdown.KeywordScore = k.Score
+		}
+		existing.Breakdown.MatchTypes = appendMatchType(existing.Breakdown.MatchTypes, "keyword")
+		if existing.Content == "" {
+			existing.Content = k.Content
+		}
+		merged[k.ID] = existing
+	}
+
+	result := make([]models.Knowledge, 0, len(merged))
+	for _, k := range merged {
+		base := math.Max(k.Breakdown.VectorScore, k.Breakdown.KeywordScore)
+		if k.Breakdown.VectorScore > 0 && k.Breakdown.KeywordScore > 0 {
+			base = math.Min(1, base+0.1*math.Min(k.Breakdown.VectorScore, k.Breakdown.KeywordScore))
+		}
+		k.Score = base
+		result = append(result, k)
+	}
+	return result
+}
+
+func appendMatchType(types []string, matchType string) []string {
+	for _, existing := range types {
+		if existing == matchType {
+			return types
+		}
+	}
+	return append(types, matchType)
+}
+
 func applyScoreAdjustments(knowledge []models.Knowledge) []models.Knowledge {
 	now := time.Now()
 	result := make([]models.Knowledge, len(knowledge))
 	for i, k := range knowledge {
+		baseScore := k.Score
 		recencyBoost := recencyFactor(k.CreatedAt, now)
-		importanceBoost := float64(k.Importance)
+		importanceBoost := float64(k.Importance) * importanceBoostFactor
 		usageBoost := math.Min(float64(k.UsageCount)*usageBoostPerUse, maxUsageBoost)
-		k.Score = k.Score * (1 + recencyBoost + importanceBoost + usageBoost)
+		k.Score = baseScore * (1 + recencyBoost + importanceBoost + usageBoost)
+		k.Breakdown.BaseScore = baseScore
+		k.Breakdown.RecencyBoost = recencyBoost
+		k.Breakdown.ImportanceBoost = importanceBoost
+		k.Breakdown.UsageBoost = usageBoost
+		k.Breakdown.FinalScore = k.Score
 		result[i] = k
 	}
 
-	for i := 0; i < len(result); i++ {
-		for j := i + 1; j < len(result); j++ {
-			if result[j].Score > result[i].Score {
-				result[i], result[j] = result[j], result[i]
-			}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Score == result[j].Score {
+			return result[i].CreatedAt.After(result[j].CreatedAt)
 		}
-	}
+		return result[i].Score > result[j].Score
+	})
 
 	return result
 }

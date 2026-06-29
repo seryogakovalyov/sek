@@ -257,12 +257,13 @@ HOW TO QUERY:
 
 func logRetrieval(ctx context.Context, st store.Store, sessionID, task string, knowledge []models.Knowledge) string {
 	type resultEntry struct {
-		ID    string  `json:"id"`
-		Score float64 `json:"score"`
+		ID        string                `json:"id"`
+		Score     float64               `json:"score"`
+		Breakdown models.ScoreBreakdown `json:"score_breakdown,omitempty"`
 	}
 	entries := make([]resultEntry, len(knowledge))
 	for i, k := range knowledge {
-		entries[i] = resultEntry{ID: k.ID, Score: k.Score}
+		entries[i] = resultEntry{ID: k.ID, Score: k.Score, Breakdown: k.Breakdown}
 	}
 	data, _ := json.Marshal(entries)
 

@@ -1,0 +1,65 @@
+[
+  {
+    "name": "keyword specific result beats generic vector match",
+    "task": "review retrieval telemetry report_usage usage_count feedback loop",
+    "max_entries": 2,
+    "vector_results": [
+      {
+        "id": "generic-mcp",
+        "content": "MCP startup was fixed by adding an explicit stdio flag.",
+        "score": 0.92,
+        "importance": 0.8,
+        "age_days": 0
+      },
+      {
+        "id": "telemetry-specific",
+        "content": "Retrieval telemetry stores retrieval_log results and report_usage increments usage_count for feedback loop scoring.",
+        "score": 0.35,
+        "importance": 0.5,
+        "age_days": 10
+      }
+    ],
+    "keyword_results": [
+      {
+        "id": "telemetry-specific",
+        "content": "Retrieval telemetry stores retrieval_log results and report_usage increments usage_count for feedback loop scoring.",
+        "score": 1.0,
+        "importance": 0.5,
+        "age_days": 10
+      }
+    ],
+    "expected_top": "telemetry-specific"
+  },
+  {
+    "name": "hybrid match receives both score channels",
+    "task": "secret redaction tests redact tokens passwords private urls",
+    "max_entries": 2,
+    "vector_results": [
+      {
+        "id": "redaction",
+        "content": "Secret redaction masks API tokens, passwords, bearer tokens and private URLs before storage.",
+        "score": 0.76,
+        "importance": 0.8,
+        "age_days": 2
+      },
+      {
+        "id": "readme",
+        "content": "README phase four priorities were reordered.",
+        "score": 0.74,
+        "importance": 0.8,
+        "age_days": 0
+      }
+    ],
+    "keyword_results": [
+      {
+        "id": "redaction",
+        "content": "Secret redaction masks API tokens, passwords, bearer tokens and private URLs before storage.",
+        "score": 1.0,
+        "importance": 0.8,
+        "age_days": 2
+      }
+    ],
+    "expected_top": "redaction",
+    "expected_match_types": ["vector", "keyword"]
+  }
+]

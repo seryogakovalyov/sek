@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/anomalyco/sek/internal/models"
 	"github.com/anomalyco/sek/internal/redact"
@@ -21,8 +22,9 @@ type sqliteStore struct {
 }
 
 type retrievalResultEntry struct {
-	ID    string  `json:"id"`
-	Score float64 `json:"score"`
+	ID        string                `json:"id"`
+	Score     float64               `json:"score"`
+	Breakdown models.ScoreBreakdown `json:"score_breakdown,omitempty"`
 }
 
 func NewSQLite(path string) (Store, error) {
@@ -158,15 +160,76 @@ func (s *sqliteStore) Search(ctx context.Context, query string, limit int) ([]mo
 	if limit <= 0 {
 		limit = 50
 	}
+	tokens := searchTokens(query)
+	if len(tokens) == 0 {
+		return nil, nil
+	}
+
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, level, created_at, content, source_ids, embedding, event_type, importance, COALESCE(usage_count, 0) FROM knowledge WHERE content LIKE '%' || ? || '%' ORDER BY created_at DESC LIMIT ?`,
-		query, limit,
+		`SELECT id, level, created_at, content, source_ids, embedding, event_type, importance, COALESCE(usage_count, 0) FROM knowledge`,
 	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	return scanKnowledge(rows)
+
+	all, err := scanKnowledge(rows)
+	if err != nil {
+		return nil, err
+	}
+
+	matches := make([]models.Knowledge, 0, len(all))
+	for _, k := range all {
+		score := keywordScore(k, tokens)
+		if score <= 0 {
+			continue
+		}
+		k.Score = score
+		matches = append(matches, k)
+	}
+
+	sort.Slice(matches, func(i, j int) bool {
+		if matches[i].Score == matches[j].Score {
+			return matches[i].CreatedAt.After(matches[j].CreatedAt)
+		}
+		return matches[i].Score > matches[j].Score
+	})
+
+	if limit > len(matches) {
+		limit = len(matches)
+	}
+	return matches[:limit], nil
+}
+
+func searchTokens(query string) []string {
+	seen := make(map[string]bool)
+	var tokens []string
+	for _, token := range strings.FieldsFunc(strings.ToLower(query), func(r rune) bool {
+		return !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-' || r == '.' || r == '/')
+	}) {
+		token = strings.Trim(token, "-_./")
+		if len(token) < 2 || seen[token] {
+			continue
+		}
+		seen[token] = true
+		tokens = append(tokens, token)
+	}
+	return tokens
+}
+
+func keywordScore(k models.Knowledge, tokens []string) float64 {
+	haystack := strings.ToLower(k.ID + " " + k.Content + " " + strings.Join(k.SourceIDs, " "))
+	matches := 0
+	for _, token := range tokens {
+		if strings.Contains(haystack, token) {
+			matches++
+		}
+	}
+	if matches == 0 {
+		return 0
+	}
+	fraction := float64(matches) / float64(len(tokens))
+	return 0.25 + 0.75*fraction
 }
 
 func scanKnowledge(rows *sql.Rows) ([]models.Knowledge, error) {

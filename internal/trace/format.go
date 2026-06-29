@@ -32,6 +32,18 @@ func SourceTrace(k models.Knowledge, includeScore bool) []string {
 	if includeScore && k.Score > 0 {
 		lines = append(lines, fmt.Sprintf("- why: retrieval score %.3f after similarity, recency, and importance adjustments", k.Score))
 	}
+	if includeScore && k.Breakdown.FinalScore > 0 {
+		lines = append(lines, fmt.Sprintf("- score_breakdown: vector=%.3f keyword=%.3f base=%.3f recency=%.3f importance=%.3f usage=%.3f final=%.3f matches=%s",
+			k.Breakdown.VectorScore,
+			k.Breakdown.KeywordScore,
+			k.Breakdown.BaseScore,
+			k.Breakdown.RecencyBoost,
+			k.Breakdown.ImportanceBoost,
+			k.Breakdown.UsageBoost,
+			k.Breakdown.FinalScore,
+			strings.Join(k.Breakdown.MatchTypes, "+"),
+		))
+	}
 	if k.EventType != "" {
 		lines = append(lines, "- event_type: "+string(k.EventType))
 	}

@@ -27,9 +27,21 @@ type Knowledge struct {
 	SourceIDs  []string       `json:"source_ids,omitempty"`
 	Embedding  []float32      `json:"-"`
 	Score      float64        `json:"score,omitempty"`
+	Breakdown  ScoreBreakdown `json:"score_breakdown,omitempty"`
 	EventType  EventType      `json:"event_type,omitempty"`
 	Importance Importance     `json:"importance,omitempty"`
 	UsageCount int            `json:"usage_count,omitempty"`
+}
+
+type ScoreBreakdown struct {
+	VectorScore     float64  `json:"vector_score,omitempty"`
+	KeywordScore    float64  `json:"keyword_score,omitempty"`
+	BaseScore       float64  `json:"base_score,omitempty"`
+	RecencyBoost    float64  `json:"recency_boost,omitempty"`
+	ImportanceBoost float64  `json:"importance_boost,omitempty"`
+	UsageBoost      float64  `json:"usage_boost,omitempty"`
+	FinalScore      float64  `json:"final_score,omitempty"`
+	MatchTypes      []string `json:"match_types,omitempty"`
 }
 
 func EventImportance(et EventType) Importance {
