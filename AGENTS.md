@@ -1,14 +1,14 @@
-# SEK: Project Experience Runtime
+# SEK: Experience Runtime
 
 You have access to SEK via MCP tools (`capture_event`, `query_experience`, `report_usage`, `list_knowledge`).
-All tools write to a single project context — no `project_id` parameter needed.
+All tools write to a single store context — no `project_id` parameter needed.
 SEK remembers what you learn across sessions. Use it deliberately.
 
 ## When to call `capture_event`
 
 Call AFTER something notable happens:
 
-Before your final response, check whether the task produced reusable project experience.
+Before your final response, check whether the task produced reusable experience.
 If yes, call `capture_event` before replying, even if the user did not explicitly ask you to remember it.
 
 | Trigger | What to put in `content` |
@@ -17,7 +17,7 @@ If yes, call `capture_event` before replying, even if the user did not explicitl
 | **Bug fixed** | Root cause, how you fixed it, relevant file paths |
 | **Design decision** | Options considered, why you chose this one |
 | **Library/pattern chosen** | What, why, any gotchas discovered |
-| **Project convention discovered** | e.g. "tests live in tests/ dir, use pytest fixtures" |
+| **Context convention discovered** | e.g. "tests live in tests/ dir, use pytest fixtures" |
 | **Novel tool usage** | Exact command, what it accomplished |
 
 Do NOT call for:
@@ -38,7 +38,7 @@ Good: `Fixed TestFoo — was failing because func init() ran before mock setup. 
 
 ## When to call `query_experience`
 
-**ALWAYS call before answering any project-related question.** Do NOT answer from your own training data — SEK has the actual project experience.
+**ALWAYS call before answering any question related to the current store context.** Do NOT answer from your own training data — SEK has the actual accumulated experience.
 
 1. **User asks "как / how to / why / что лучше / which"** → query_experience immediately
 2. **User asks about a file, library, pattern or decision** → query_experience
@@ -46,7 +46,7 @@ Good: `Fixed TestFoo — was failing because func init() ran before mock setup. 
 4. **New task starts** → query_experience(task description) — check for prior art
 5. **Before making any decision** → query_experience(options, tradeoffs)
 
-If you skip the tool call and guess, you will give wrong project-specific answers.
+If you skip the tool call and guess, you will give wrong context-specific answers.
 
 ## When to call `report_usage`
 

@@ -226,17 +226,17 @@ WHAT NOT TO CAPTURE: trivial steps, work-in-progress, obvious boilerplate, every
 
 func queryTool() mcp.Tool {
 	return mcp.NewTool("query_experience",
-		mcp.WithDescription(`Search past project experience relevant to the current task. ALWAYS use this when the user asks ANY question about the project, even if you think you know the answer.
+		mcp.WithDescription(`Search past experience in the current store context relevant to the task. ALWAYS use this when the user asks ANY question about the current codebase, store, or context, even if you think you know the answer.
 
 WHEN TO USE (ALWAYS call — do NOT answer from your own knowledge):
 - User asks "how to", "what's the best", "which to choose", "why did we" — call this tool
-- User asks for recommendations, best practices for this project — call this tool
+- User asks for recommendations or best practices for the current context — call this tool
 - User reports an error or bug — call this tool with the error text
 - User mentions a file, library, or pattern — call this tool to find related experience
 - User asks "как", "почему", "что лучше", "какую БД" — call this tool
 
 WHEN NOT TO USE:
-- Only skip if the question is purely about general coding knowledge unrelated to this project
+- Only skip if the question is purely about general coding knowledge unrelated to the current store context
 
 HOW TO QUERY:
 - Be specific and include context (e.g. "how do we run integration tests?" not "testing")

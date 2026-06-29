@@ -1,8 +1,8 @@
-# SEK — Project Experience Runtime
+# SEK — Experience Runtime
 
-SEK gives AI agents persistent project memory. It preserves engineering experience across sessions, distills it into reusable observations/lessons/patterns, and surfaces it on future tasks via MCP.
+SEK gives AI agents persistent experience. Its default use case is engineering memory for coding agents: it preserves decisions, fixes, patterns, and project conventions across sessions, distills them into reusable observations/lessons/patterns, and surfaces them on future tasks via MCP.
 
-SEK is not a coding agent, LLM provider, or external RAG system. It is a local experience runtime: a small Go binary, a SQLite file next to your project, and MCP tools for capture and retrieval.
+SEK is not a coding agent, LLM provider, or external RAG system. It is a local experience runtime: a small Go binary, a SQLite store, and MCP tools for capture and retrieval. Project-local memory is one deployment mode, not the core abstraction.
 
 > Full vision: [VISION.md](VISION.md).
 
@@ -156,8 +156,8 @@ For stable capture behavior, add an `AGENTS.md` file to the project or merge its
 
 Recommended rules:
 
-- call `query_experience` before project-specific tasks;
-- before the final response, call `capture_event` if the task produced reusable project experience;
+- call `query_experience` before context-specific tasks;
+- before the final response, call `capture_event` if the task produced reusable experience;
 - call `report_usage` after applying a returned knowledge entry;
 - capture concrete paths, commands, errors, root causes, and rationale;
 - skip routine edits and noisy per-tool-call logging.
@@ -290,6 +290,10 @@ sekctl list --global
 
 ## Architecture
 
+SEK is a generic experience runtime. The current built-in module is `engineering`: reusable coding-agent experience with the default knowledge levels (`observation`, `lesson`, `pattern`) and event types (`request`, `response`, `tool_usage`, `failure`, `decision`, `implementation_choice`, `successful_fix`).
+
+Modules describe the type of memory and its vocabulary. They do not introduce public `namespace` or `project_id` parameters, and they do not change the storage schema. A SQLite store remains one context.
+
 ```text
 MCP client
   ├─ stdio
@@ -402,6 +406,7 @@ Local artifacts `sekd`, `sekctl`, and `.sek/` are not committed.
 - [ ] MCP resources for read-only knowledge
 - [ ] Experience diff between sessions
 - [ ] Knowledge export/import between stores
+- [ ] Module-aware lifecycle rules
 
 ### Phase 5 — Ecosystem
 
