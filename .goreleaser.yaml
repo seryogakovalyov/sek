@@ -32,7 +32,16 @@ builds:
       - arm64
 
 archives:
-  - formats: [tar.gz]
+  - id: sekd-arch
+    ids: [sekd]
+    name_template: >-
+      {{ .Binary }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    wrap_in_directory: true
+    files:
+      - LICENSE
+      - README.md
+  - id: sekctl-arch
+    ids: [sekctl]
     name_template: >-
       {{ .Binary }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
     wrap_in_directory: true
