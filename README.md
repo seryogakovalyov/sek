@@ -104,6 +104,8 @@ For llama.cpp embeddings, add these flags on the llama.cpp side:
 ## Configuration
 
 `sekd` reads `.sek/config.json` if it exists. CLI flags override config values.
+Use [examples/config.json](examples/config.json) as a minimal local model template;
+copy it to `.sek/config.json` and adjust the model/base URL.
 
 | Flag | Default | Description |
 |---|---|---|
@@ -168,6 +170,8 @@ Recommendations:
 ### Project Instructions
 
 For stable capture behavior, add an `AGENTS.md` file to the project or merge its SEK section into your existing agent instructions. Tool descriptions help, but project-level instructions are more likely to shape the agent workflow.
+
+Use [examples/AGENTS.md](examples/AGENTS.md) as a minimal project template.
 
 Recommended rules:
 

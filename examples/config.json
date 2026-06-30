@@ -1,0 +1,7 @@
+{
+  "llm": {
+    "provider": "openai",
+    "base_url": "http://localhost:8000/v1",
+    "model": "Qwen3.6-35B-A3B-Unsloth"
+  }
+}
