@@ -147,6 +147,26 @@ func (s *sqliteStore) Append(ctx context.Context, event *models.Event) error {
 	return err
 }
 
+func (s *sqliteStore) GetEvent(ctx context.Context, id string) (*models.Event, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, session_id, server_session, timestamp, type, source, content FROM events WHERE id = ? LIMIT 1`,
+		id,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	events, err := scanEvents(rows)
+	if err != nil {
+		return nil, err
+	}
+	if len(events) == 0 {
+		return nil, sql.ErrNoRows
+	}
+	return &events[0], nil
+}
+
 func (s *sqliteStore) Query(ctx context.Context, limit int) ([]models.Event, error) {
 	if limit <= 0 {
 		limit = 100
@@ -174,6 +194,26 @@ func (s *sqliteStore) Save(ctx context.Context, k *models.Knowledge) error {
 		k.ID, string(k.Level), k.CreatedAt.Format(time.RFC3339Nano), k.Content, string(sourceIDs), embBytes, string(k.EventType), float64(k.Importance), k.UsageCount,
 	)
 	return err
+}
+
+func (s *sqliteStore) GetKnowledge(ctx context.Context, id string) (*models.Knowledge, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, level, created_at, content, source_ids, embedding, event_type, importance, COALESCE(usage_count, 0) FROM knowledge WHERE id = ? LIMIT 1`,
+		id,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	knowledge, err := scanKnowledge(rows)
+	if err != nil {
+		return nil, err
+	}
+	if len(knowledge) == 0 {
+		return nil, sql.ErrNoRows
+	}
+	return &knowledge[0], nil
 }
 
 func (s *sqliteStore) Search(ctx context.Context, query string, limit int) ([]models.Knowledge, error) {

@@ -8,6 +8,7 @@ import (
 
 type EventStore interface {
 	Append(ctx context.Context, event *models.Event) error
+	GetEvent(ctx context.Context, id string) (*models.Event, error)
 	Query(ctx context.Context, limit int) ([]models.Event, error)
 	UnobservedEvents(ctx context.Context, limit int) ([]models.Event, error)
 	EventsBySession(ctx context.Context, sessionID string, limit int) ([]models.Event, error)
@@ -16,6 +17,7 @@ type EventStore interface {
 
 type KnowledgeStore interface {
 	Save(ctx context.Context, k *models.Knowledge) error
+	GetKnowledge(ctx context.Context, id string) (*models.Knowledge, error)
 	Search(ctx context.Context, query string, limit int) ([]models.Knowledge, error)
 	SearchSimilar(ctx context.Context, embedding []float32, limit int) ([]models.Knowledge, error)
 	FindSimilar(ctx context.Context, embedding []float32, threshold float64, limit int) ([]models.Knowledge, error)

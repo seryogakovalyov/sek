@@ -269,6 +269,19 @@ Parameters:
 | `level` | no | `observation`, `lesson`, `pattern` |
 | `limit` | no | Maximum number of entries |
 
+## MCP Resources
+
+SEK also exposes read-only MCP resources for clients that support resource browsing.
+Resources are snapshots, not semantic search. Use `query_experience` when you need task-relevant retrieval.
+
+| Resource URI | Content |
+|---|---|
+| `sek://knowledge/recent` | Recent observations, lessons, and patterns |
+| `sek://knowledge/observations` | Recent observation-level knowledge |
+| `sek://knowledge/lessons` | Recent lesson-level knowledge |
+| `sek://knowledge/patterns` | Recent pattern-level knowledge |
+| `sek://stats` | Store counters and DB size |
+
 ## CLI
 
 `sekctl` operates the store directly. Basic commands do not need an LLM; `query` requires an LLM endpoint.
@@ -280,6 +293,7 @@ sekctl status
 sekctl list
 sekctl list --level lesson
 sekctl list --limit 50
+sekctl show obs-abc123
 
 sekctl log --limit 10
 sekctl rm obs-abc123
@@ -302,6 +316,7 @@ sekctl list --global
 | `status` | `--project`, `--global`, `--store` | Show counters and DB size |
 | `list` | `--project`, `--global`, `--store`, `--level`, `--limit` | Show knowledge entries |
 | `log` | `--project`, `--global`, `--store`, `--limit` | Show raw events |
+| `show <id>` | `--project`, `--global`, `--store` | Show a full knowledge entry or event |
 | `query` | `--project`, `--global`, `--store`, `--llm-*`, `--max-tokens`, `--max-entries`, `--trace` | Find experience via reuse engine |
 | `rm <id>` | `--project`, `--global`, `--store` | Delete a knowledge entry |
 | `gc` | `--project`, `--global`, `--store`, `--older-than`, `--before`, `--dry-run` | Delete old entries, retrieval logs, and orphan-derived knowledge |
@@ -475,7 +490,7 @@ Local artifacts `sekd`, `sekctl`, and `.sek/` are not committed.
 - [ ] Knowledge lifecycle: `supersedes`, `conflicts_with`, `deprecated_at`
 - [ ] Automatic cleanup of stale observations
 - [x] `sekctl --help` with exit code 0
-- [ ] MCP resources for read-only knowledge
+- [x] MCP resources for read-only knowledge
 - [ ] Experience diff between sessions
 - [ ] Knowledge export/import between stores
 - [ ] Module-aware lifecycle rules

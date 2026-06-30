@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -45,6 +47,8 @@ func run(argv []string, stderr io.Writer) int {
 		cmdList(args)
 	case "log":
 		cmdLog(args)
+	case "show":
+		cmdShow(args)
 	case "rm":
 		cmdRemove(args)
 	case "gc":
@@ -71,6 +75,7 @@ Commands:
   init              Create .sek directory and store
   list              List knowledge entries
   log               List recent events
+  show <id>         Show a full knowledge entry or event
   rm <id>           Delete knowledge by ID
   gc                Delete old entries (GC by TTL or absolute cutoff)
   status, stats     Show project statistics
@@ -226,6 +231,78 @@ func reverseEvents(items []models.Event) {
 	for i, j := 0, len(items)-1; i < j; i, j = i+1, j-1 {
 		items[i], items[j] = items[j], items[i]
 	}
+}
+
+// --- show ---
+
+func cmdShow(args []string) {
+	fs := flag.NewFlagSet("show", flag.ExitOnError)
+	project := fs.String("project", "", "project directory (default: cwd)")
+	global := fs.Bool("global", false, "use global ~/.sek store")
+	storeFlag := fs.String("store", "", "explicit store path")
+	fs.Parse(args)
+
+	id := fs.Arg(0)
+	if id == "" {
+		log.Fatal("usage: sekctl show <id>")
+	}
+
+	s := openStore(*project, *global, *storeFlag)
+	defer s.Close()
+
+	ctx := context.Background()
+	if k, err := s.GetKnowledge(ctx, id); err == nil {
+		printKnowledgeFull(*k)
+		return
+	} else if !isNotFound(err) {
+		log.Fatalf("show knowledge: %v", err)
+	}
+
+	if e, err := s.GetEvent(ctx, id); err == nil {
+		printEventFull(*e)
+		return
+	} else if !isNotFound(err) {
+		log.Fatalf("show event: %v", err)
+	}
+
+	log.Fatalf("not found: %s", id)
+}
+
+func printKnowledgeFull(k models.Knowledge) {
+	fmt.Printf("ID:          %s\n", k.ID)
+	fmt.Printf("Type:        knowledge\n")
+	fmt.Printf("Level:       %s\n", k.Level)
+	fmt.Printf("Created:     %s\n", k.CreatedAt.Format(time.RFC3339Nano))
+	if len(k.SourceIDs) > 0 {
+		fmt.Printf("Sources:     %s\n", strings.Join(k.SourceIDs, ","))
+	}
+	if k.EventType != "" {
+		fmt.Printf("Event type:  %s\n", k.EventType)
+	}
+	if k.Importance != 0 {
+		fmt.Printf("Importance:  %.2f\n", k.Importance)
+	}
+	fmt.Printf("Usage count: %d\n", k.UsageCount)
+	fmt.Println()
+	fmt.Println(k.Content)
+}
+
+func printEventFull(e models.Event) {
+	fmt.Printf("ID:             %s\n", e.ID)
+	fmt.Printf("Type:           event\n")
+	fmt.Printf("Event type:     %s\n", e.Type)
+	fmt.Printf("Source:         %s\n", e.Source)
+	fmt.Printf("Session:        %s\n", e.SessionID)
+	if e.ServerSession != "" {
+		fmt.Printf("Server session: %s\n", e.ServerSession)
+	}
+	fmt.Printf("Timestamp:      %s\n", e.Timestamp.Format(time.RFC3339Nano))
+	fmt.Println()
+	fmt.Println(e.Content)
+}
+
+func isNotFound(err error) bool {
+	return errors.Is(err, sql.ErrNoRows)
 }
 
 // --- rm ---

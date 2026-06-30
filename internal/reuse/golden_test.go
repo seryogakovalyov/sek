@@ -2,6 +2,7 @@ package reuse
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"os"
 	"reflect"
@@ -99,6 +100,10 @@ type goldenStore struct {
 
 func (s *goldenStore) Save(context.Context, *models.Knowledge) error {
 	return nil
+}
+
+func (s *goldenStore) GetKnowledge(context.Context, string) (*models.Knowledge, error) {
+	return nil, sql.ErrNoRows
 }
 
 func (s *goldenStore) Search(context.Context, string, int) ([]models.Knowledge, error) {

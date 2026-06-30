@@ -61,6 +61,85 @@ func TestSaveAndList(t *testing.T) {
 	}
 }
 
+func TestGetKnowledge(t *testing.T) {
+	s := newTestStore(t)
+	defer s.Close()
+	ctx := context.Background()
+
+	err := s.Save(ctx, &models.Knowledge{
+		ID:         "knowledge-get",
+		Level:      models.LevelLesson,
+		CreatedAt:  time.Now(),
+		Content:    "full lesson content",
+		SourceIDs:  []string{"event-1"},
+		EventType:  models.EventDecision,
+		Importance: models.ImportanceHigh,
+		UsageCount: 2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.GetKnowledge(ctx, "knowledge-get")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != "knowledge-get" {
+		t.Fatalf("ID = %q", got.ID)
+	}
+	if got.Content != "full lesson content" {
+		t.Fatalf("Content = %q", got.Content)
+	}
+	if got.Level != models.LevelLesson {
+		t.Fatalf("Level = %q", got.Level)
+	}
+	if got.EventType != models.EventDecision {
+		t.Fatalf("EventType = %q", got.EventType)
+	}
+	if got.UsageCount != 2 {
+		t.Fatalf("UsageCount = %d", got.UsageCount)
+	}
+}
+
+func TestGetEvent(t *testing.T) {
+	s := newTestStore(t)
+	defer s.Close()
+	ctx := context.Background()
+
+	err := s.Append(ctx, &models.Event{
+		ID:            "event-get",
+		SessionID:     "session-1",
+		ServerSession: "server-1",
+		Timestamp:     time.Now(),
+		Type:          models.EventDecision,
+		Source:        "test",
+		Content:       "full event content",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.GetEvent(ctx, "event-get")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != "event-get" {
+		t.Fatalf("ID = %q", got.ID)
+	}
+	if got.Content != "full event content" {
+		t.Fatalf("Content = %q", got.Content)
+	}
+	if got.SessionID != "session-1" {
+		t.Fatalf("SessionID = %q", got.SessionID)
+	}
+	if got.ServerSession != "server-1" {
+		t.Fatalf("ServerSession = %q", got.ServerSession)
+	}
+	if got.Type != models.EventDecision {
+		t.Fatalf("Type = %q", got.Type)
+	}
+}
+
 func TestLogAndListModuleRoutes(t *testing.T) {
 	s := newTestStore(t)
 	defer s.Close()

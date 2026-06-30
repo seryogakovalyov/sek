@@ -29,6 +29,7 @@ func newMCPServer(st store.Store, provider llm.Provider, embedder llm.Embedder, 
 	s := server.NewMCPServer("SEK", "0.1.0",
 		server.WithLogging(),
 	)
+	addResources(s, st)
 
 	s.AddTool(captureTool(), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		eventType := mcp.ParseString(req, "event_type", "")
