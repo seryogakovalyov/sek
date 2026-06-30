@@ -299,6 +299,10 @@ sekctl log --limit 10
 sekctl diff --since 24h
 sekctl diff --from 2026-06-30T10:00:00 --to 2026-06-30T13:00:00
 sekctl diff --session sek-abc123
+sekctl usage
+sekctl usage --sessions
+sekctl usage --session sek-abc123
+sekctl usage --unused
 sekctl rm obs-abc123
 
 sekctl gc --older-than 720h
@@ -321,6 +325,7 @@ sekctl list --global
 | `log` | `--project`, `--global`, `--store`, `--limit` | Show raw events |
 | `show <id>` | `--project`, `--global`, `--store` | Show a full knowledge entry or event |
 | `diff` | `--project`, `--global`, `--store`, `--since`, `--from`, `--to`, `--session`, `--full`, `--limit` | Review events and knowledge added by time range or session |
+| `usage`, `telemetry` | `--project`, `--global`, `--store`, `--top`, `--sessions`, `--session`, `--unused`, `--full`, `--limit` | Inspect retrieval usage telemetry and top used knowledge |
 | `query` | `--project`, `--global`, `--store`, `--llm-*`, `--max-tokens`, `--max-entries`, `--trace` | Find experience via reuse engine |
 | `rm <id>` | `--project`, `--global`, `--store` | Delete a knowledge entry |
 | `gc` | `--project`, `--global`, `--store`, `--older-than`, `--before`, `--dry-run` | Delete old entries, retrieval logs, and orphan-derived knowledge |

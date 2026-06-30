@@ -604,6 +604,109 @@ func TestRetrievalUsageRejectsInvalidIDs(t *testing.T) {
 	}
 }
 
+func TestUsageTelemetryReadAPIs(t *testing.T) {
+	s := newTestStore(t)
+	defer s.Close()
+	ctx := context.Background()
+
+	for _, k := range []*models.Knowledge{
+		{
+			ID:         "obs-used",
+			Level:      models.LevelObservation,
+			CreatedAt:  time.Now().Add(-time.Hour),
+			Content:    "used observation",
+			UsageCount: 2,
+		},
+		{
+			ID:         "lesson-used",
+			Level:      models.LevelLesson,
+			CreatedAt:  time.Now(),
+			Content:    "used lesson",
+			UsageCount: 1,
+		},
+		{
+			ID:        "obs-unused",
+			Level:     models.LevelObservation,
+			CreatedAt: time.Now(),
+			Content:   "unused observation",
+		},
+	} {
+		if err := s.Save(ctx, k); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	now := time.Now()
+	for _, log := range []*models.RetrievalLog{
+		{
+			ID:        "ret-used-1",
+			SessionID: "s1",
+			Timestamp: now.Add(-2 * time.Minute),
+			Task:      "used task one",
+			Results:   "[]",
+			UsedIDs:   `["obs-used"]`,
+		},
+		{
+			ID:        "ret-unused",
+			SessionID: "s1",
+			Timestamp: now.Add(-time.Minute),
+			Task:      "unused task",
+			Results:   "[]",
+			UsedIDs:   `[]`,
+		},
+		{
+			ID:        "ret-used-2",
+			SessionID: "s2",
+			Timestamp: now,
+			Task:      "used task two",
+			Results:   "[]",
+			UsedIDs:   `["obs-used","lesson-used"]`,
+		},
+	} {
+		if err := s.LogRetrieval(ctx, log); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	summary, err := s.UsageSummary(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.Retrievals != 3 || summary.UsedRetrievals != 2 || summary.UsedMarks != 3 {
+		t.Fatalf("unexpected summary: %#v", summary)
+	}
+	if summary.KnowledgeWithUse != 2 || summary.TotalUsageCount != 3 {
+		t.Fatalf("unexpected knowledge usage summary: %#v", summary)
+	}
+
+	sessions, err := s.UsageBySession(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 2 || sessions[0].SessionID != "s2" || sessions[1].SessionID != "s1" {
+		t.Fatalf("unexpected sessions: %#v", sessions)
+	}
+	if sessions[1].Retrievals != 2 || sessions[1].UsedRetrievals != 1 || sessions[1].UsedMarks != 1 {
+		t.Fatalf("unexpected s1 stats: %#v", sessions[1])
+	}
+
+	retrievals, err := s.ListRetrievals(ctx, "s1", true, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(retrievals) != 1 || retrievals[0].ID != "ret-unused" {
+		t.Fatalf("unexpected unused retrievals: %#v", retrievals)
+	}
+
+	top, err := s.TopUsedKnowledge(ctx, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(top) != 2 || top[0].ID != "obs-used" || top[1].ID != "lesson-used" {
+		t.Fatalf("unexpected top used knowledge: %#v", top)
+	}
+}
+
 func TestClearDeletesRetrievalLog(t *testing.T) {
 	s := newTestStore(t)
 	defer s.Close()

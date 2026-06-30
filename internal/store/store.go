@@ -46,6 +46,10 @@ type Store interface {
 	Stats(ctx context.Context) (*StoreStats, error)
 	GC(ctx context.Context, before string) (*GCResult, error)
 	LogRetrieval(ctx context.Context, log *models.RetrievalLog) error
+	UsageSummary(ctx context.Context) (*models.UsageSummary, error)
+	UsageBySession(ctx context.Context, limit int) ([]models.SessionUsage, error)
+	ListRetrievals(ctx context.Context, sessionID string, unusedOnly bool, limit int) ([]models.RetrievalLog, error)
+	TopUsedKnowledge(ctx context.Context, limit int) ([]models.Knowledge, error)
 	MarkRetrievalUsed(ctx context.Context, id string, knowledgeID string) (bool, error)
 	IncrementUsageCount(ctx context.Context, id string) error
 	LogModuleRoute(ctx context.Context, log *models.ModuleRouteLog) error

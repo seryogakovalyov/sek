@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -55,6 +56,8 @@ func run(argv []string, stderr io.Writer) int {
 		cmdGC(args)
 	case "diff":
 		cmdDiff(args)
+	case "usage", "telemetry":
+		cmdUsage(args)
 	case "status", "stats":
 		cmdStatus(args)
 	case "prune":
@@ -81,6 +84,7 @@ Commands:
   rm <id>           Delete knowledge by ID
   gc                Delete old entries (GC by TTL or absolute cutoff)
   diff              Review events and knowledge added by time range or session
+  usage, telemetry  Show retrieval usage telemetry
   status, stats     Show project statistics
   prune             Delete all knowledge and events
   query <task>      Query experience (needs LLM flags)
@@ -726,6 +730,139 @@ func countKnowledgeLevels(knowledge []models.Knowledge) (int, int, int) {
 		}
 	}
 	return obs, lessons, patterns
+}
+
+// --- usage ---
+
+func cmdUsage(args []string) {
+	fs := flag.NewFlagSet("usage", flag.ExitOnError)
+	project := fs.String("project", "", "project directory (default: cwd)")
+	global := fs.Bool("global", false, "use global ~/.sek store")
+	storeFlag := fs.String("store", "", "explicit store path")
+	top := fs.Int("top", 10, "number of top used knowledge entries")
+	limit := fs.Int("limit", 20, "max retrievals or sessions to print")
+	sessions := fs.Bool("sessions", false, "show usage grouped by session")
+	session := fs.String("session", "", "show retrievals for one session")
+	unused := fs.Bool("unused", false, "show retrievals with no reported usage")
+	full := fs.Bool("full", false, "print full task/content instead of compact rows")
+	fs.Parse(args)
+
+	s := openStore(*project, *global, *storeFlag)
+	defer s.Close()
+
+	ctx := context.Background()
+	if *sessions {
+		items, err := s.UsageBySession(ctx, *limit)
+		if err != nil {
+			log.Fatalf("usage sessions: %v", err)
+		}
+		printUsageSessions(items)
+		return
+	}
+
+	if *session != "" || *unused {
+		items, err := s.ListRetrievals(ctx, *session, *unused, *limit)
+		if err != nil {
+			log.Fatalf("usage retrievals: %v", err)
+		}
+		printRetrievals(items, *full)
+		return
+	}
+
+	summary, err := s.UsageSummary(ctx)
+	if err != nil {
+		log.Fatalf("usage summary: %v", err)
+	}
+	knowledge, err := s.TopUsedKnowledge(ctx, *top)
+	if err != nil {
+		log.Fatalf("usage top: %v", err)
+	}
+	printUsageSummary(*summary, knowledge, *full)
+}
+
+func printUsageSummary(summary models.UsageSummary, knowledge []models.Knowledge, full bool) {
+	fmt.Printf("Retrievals:         %d\n", summary.Retrievals)
+	fmt.Printf("Used retrievals:    %d\n", summary.UsedRetrievals)
+	fmt.Printf("Use rate:           %.1f%%\n", percent(summary.UsedRetrievals, summary.Retrievals))
+	fmt.Printf("Used marks:         %d\n", summary.UsedMarks)
+	fmt.Printf("Knowledge with use: %d\n", summary.KnowledgeWithUse)
+	fmt.Printf("Total usage count:  %d\n", summary.TotalUsageCount)
+
+	if len(knowledge) == 0 {
+		fmt.Println("\nNo used knowledge yet")
+		return
+	}
+
+	fmt.Println("\nTop used knowledge:")
+	fmt.Printf("%-5s %-41s %-11s %s\n", "USES", "ID", "LEVEL", "CREATED")
+	for _, k := range knowledge {
+		fmt.Printf("%-5d %-41s %-11s %s\n", k.UsageCount, k.ID, k.Level, k.CreatedAt.Format("2006-01-02 15:04"))
+		if full {
+			fmt.Printf("  %s\n\n", k.Content)
+		} else {
+			fmt.Printf("  %s\n\n", compact(k.Content, 100))
+		}
+	}
+}
+
+func printUsageSessions(items []models.SessionUsage) {
+	if len(items) == 0 {
+		fmt.Println("no retrieval telemetry recorded")
+		return
+	}
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "SESSION\tRETRIEVALS\tUSED\tRATE\tMARKS\tLAST SEEN")
+	for _, item := range items {
+		fmt.Fprintf(w, "%s\t%d\t%d\t%.1f%%\t%d\t%s\n",
+			item.SessionID,
+			item.Retrievals,
+			item.UsedRetrievals,
+			percent(item.UsedRetrievals, item.Retrievals),
+			item.UsedMarks,
+			item.LastSeen.Format("2006-01-02 15:04"),
+		)
+	}
+	w.Flush()
+}
+
+func printRetrievals(items []models.RetrievalLog, full bool) {
+	if len(items) == 0 {
+		fmt.Println("no retrieval telemetry found")
+		return
+	}
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "ID\tSESSION\tTIME\tUSED")
+	for _, item := range items {
+		fmt.Fprintf(w, "%s\t%s\t%s\t%d\n", item.ID, item.SessionID, item.Timestamp.Format("2006-01-02 15:04"), usedIDCount(item.UsedIDs))
+		w.Flush()
+		if full {
+			fmt.Printf("  %s\n", item.Task)
+			if item.UsedIDs != "" && item.UsedIDs != "[]" {
+				fmt.Printf("  used: %s\n", item.UsedIDs)
+			}
+			fmt.Println()
+		} else {
+			fmt.Printf("  %s\n\n", compact(item.Task, 100))
+		}
+	}
+	w.Flush()
+}
+
+func percent(part int, total int) float64 {
+	if total == 0 {
+		return 0
+	}
+	return float64(part) * 100 / float64(total)
+}
+
+func usedIDCount(raw string) int {
+	var ids []string
+	if err := json.Unmarshal([]byte(raw), &ids); err != nil {
+		return 0
+	}
+	return len(ids)
 }
 
 func compact(s string, max int) string {

@@ -663,6 +663,159 @@ func (s *sqliteStore) LogRetrieval(ctx context.Context, log *models.RetrievalLog
 	return err
 }
 
+func (s *sqliteStore) UsageSummary(ctx context.Context) (*models.UsageSummary, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT used_ids FROM retrieval_log`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var summary models.UsageSummary
+	for rows.Next() {
+		var usedIDs string
+		if err := rows.Scan(&usedIDs); err != nil {
+			return nil, err
+		}
+		used := countUsedIDs(usedIDs)
+		summary.Retrievals++
+		if used > 0 {
+			summary.UsedRetrievals++
+			summary.UsedMarks += used
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	err = s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*), COALESCE(SUM(usage_count), 0) FROM knowledge WHERE COALESCE(usage_count, 0) > 0`,
+	).Scan(&summary.KnowledgeWithUse, &summary.TotalUsageCount)
+	if err != nil {
+		return nil, err
+	}
+
+	return &summary, nil
+}
+
+func (s *sqliteStore) UsageBySession(ctx context.Context, limit int) ([]models.SessionUsage, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT session_id, timestamp, used_ids FROM retrieval_log ORDER BY timestamp DESC`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	bySession := make(map[string]*models.SessionUsage)
+	order := make([]string, 0)
+	for rows.Next() {
+		var sessionID, ts, usedIDs string
+		if err := rows.Scan(&sessionID, &ts, &usedIDs); err != nil {
+			return nil, err
+		}
+		item, ok := bySession[sessionID]
+		if !ok {
+			item = &models.SessionUsage{SessionID: sessionID}
+			bySession[sessionID] = item
+			order = append(order, sessionID)
+		}
+		item.Retrievals++
+		used := countUsedIDs(usedIDs)
+		if used > 0 {
+			item.UsedRetrievals++
+			item.UsedMarks += used
+		}
+		if parsed, err := time.Parse(time.RFC3339Nano, ts); err == nil && parsed.After(item.LastSeen) {
+			item.LastSeen = parsed
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	result := make([]models.SessionUsage, 0, len(order))
+	for _, sessionID := range order {
+		result = append(result, *bySession[sessionID])
+		if len(result) >= limit {
+			break
+		}
+	}
+	return result, nil
+}
+
+func (s *sqliteStore) ListRetrievals(ctx context.Context, sessionID string, unusedOnly bool, limit int) ([]models.RetrievalLog, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+
+	query := `SELECT id, session_id, timestamp, task, results, used_ids FROM retrieval_log`
+	args := make([]any, 0, 2)
+	where := make([]string, 0, 2)
+	if sessionID != "" {
+		where = append(where, `session_id = ?`)
+		args = append(args, sessionID)
+	}
+	if unusedOnly {
+		where = append(where, `(used_ids IS NULL OR used_ids = '[]')`)
+	}
+	if len(where) > 0 {
+		query += ` WHERE ` + strings.Join(where, ` AND `)
+	}
+	query += ` ORDER BY timestamp DESC LIMIT ?`
+	args = append(args, limit)
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var logs []models.RetrievalLog
+	for rows.Next() {
+		var item models.RetrievalLog
+		var ts string
+		if err := rows.Scan(&item.ID, &item.SessionID, &ts, &item.Task, &item.Results, &item.UsedIDs); err != nil {
+			return nil, err
+		}
+		item.Timestamp, _ = time.Parse(time.RFC3339Nano, ts)
+		logs = append(logs, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return logs, nil
+}
+
+func (s *sqliteStore) TopUsedKnowledge(ctx context.Context, limit int) ([]models.Knowledge, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, level, created_at, content, source_ids, embedding, event_type, importance, COALESCE(usage_count, 0)
+		FROM knowledge
+		WHERE COALESCE(usage_count, 0) > 0
+		ORDER BY COALESCE(usage_count, 0) DESC, created_at DESC
+		LIMIT ?`,
+		limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanKnowledge(rows)
+}
+
+func countUsedIDs(raw string) int {
+	var ids []string
+	if err := json.Unmarshal([]byte(raw), &ids); err != nil {
+		return 0
+	}
+	return len(ids)
+}
+
 func (s *sqliteStore) MarkRetrievalUsed(ctx context.Context, id string, knowledgeID string) (bool, error) {
 	var results, usedIDs string
 	err := s.db.QueryRowContext(ctx, `SELECT results, used_ids FROM retrieval_log WHERE id = ?`, id).Scan(&results, &usedIDs)
