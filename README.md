@@ -296,6 +296,9 @@ sekctl list --limit 50
 sekctl show obs-abc123
 
 sekctl log --limit 10
+sekctl diff --since 24h
+sekctl diff --from 2026-06-30T10:00:00 --to 2026-06-30T13:00:00
+sekctl diff --session sek-abc123
 sekctl rm obs-abc123
 
 sekctl gc --older-than 720h
@@ -317,6 +320,7 @@ sekctl list --global
 | `list` | `--project`, `--global`, `--store`, `--level`, `--limit` | Show knowledge entries |
 | `log` | `--project`, `--global`, `--store`, `--limit` | Show raw events |
 | `show <id>` | `--project`, `--global`, `--store` | Show a full knowledge entry or event |
+| `diff` | `--project`, `--global`, `--store`, `--since`, `--from`, `--to`, `--session`, `--full`, `--limit` | Review events and knowledge added by time range or session |
 | `query` | `--project`, `--global`, `--store`, `--llm-*`, `--max-tokens`, `--max-entries`, `--trace` | Find experience via reuse engine |
 | `rm <id>` | `--project`, `--global`, `--store` | Delete a knowledge entry |
 | `gc` | `--project`, `--global`, `--store`, `--older-than`, `--before`, `--dry-run` | Delete old entries, retrieval logs, and orphan-derived knowledge |
@@ -491,7 +495,7 @@ Local artifacts `sekd`, `sekctl`, and `.sek/` are not committed.
 - [ ] Automatic cleanup of stale observations
 - [x] `sekctl --help` with exit code 0
 - [x] MCP resources for read-only knowledge
-- [ ] Experience diff between sessions
+- [x] `sekctl diff`: review knowledge added by time range or session
 - [ ] Knowledge export/import between stores
 - [ ] Module-aware lifecycle rules
 

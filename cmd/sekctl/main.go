@@ -53,6 +53,8 @@ func run(argv []string, stderr io.Writer) int {
 		cmdRemove(args)
 	case "gc":
 		cmdGC(args)
+	case "diff":
+		cmdDiff(args)
 	case "status", "stats":
 		cmdStatus(args)
 	case "prune":
@@ -78,6 +80,7 @@ Commands:
   show <id>         Show a full knowledge entry or event
   rm <id>           Delete knowledge by ID
   gc                Delete old entries (GC by TTL or absolute cutoff)
+  diff              Review events and knowledge added by time range or session
   status, stats     Show project statistics
   prune             Delete all knowledge and events
   query <task>      Query experience (needs LLM flags)
@@ -171,16 +174,25 @@ func cmdList(args []string) {
 	reverseKnowledge(knowledge)
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tLEVEL\tCREATED\tSOURCES\tCONTENT")
+	fmt.Fprintln(w, "ID\tLEVEL\tCREATED\tSOURCES")
 	for _, k := range knowledge {
-		content := strings.ReplaceAll(k.Content, "\n", " ")
-		if len(content) > 60 {
-			content = content[:60] + "..."
-		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", k.ID, k.Level, k.CreatedAt.Format("2006-01-02 15:04"), strings.Join(k.SourceIDs, ","), content)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", k.ID, k.Level, k.CreatedAt.Format("2006-01-02 15:04"), compactSources(k.SourceIDs))
+		w.Flush()
+		fmt.Printf("  %s\n\n", compact(k.Content, 100))
 	}
 	w.Flush()
 	fmt.Printf("\n%d entries\n", len(knowledge))
+}
+
+func compactSources(sourceIDs []string) string {
+	switch len(sourceIDs) {
+	case 0:
+		return ""
+	case 1:
+		return sourceIDs[0]
+	default:
+		return fmt.Sprintf("%d sources", len(sourceIDs))
+	}
 }
 
 // --- log ---
@@ -209,16 +221,21 @@ func cmdLog(args []string) {
 	reverseEvents(events)
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tTYPE\tSOURCE\tTIME\tCONTENT")
+	fmt.Fprintln(w, "ID\tTYPE\tSOURCE\tSESSION\tTIME")
 	for _, e := range events {
-		content := strings.ReplaceAll(e.Content, "\n", " ")
-		if len(content) > 50 {
-			content = content[:50] + "..."
-		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", e.ID, e.Type, e.Source, e.Timestamp.Format("2006-01-02 15:04"), content)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", e.ID, e.Type, e.Source, displaySession(e), e.Timestamp.Format("2006-01-02 15:04"))
+		w.Flush()
+		fmt.Printf("  %s\n\n", compact(e.Content, 100))
 	}
 	w.Flush()
 	fmt.Printf("\n%d events\n", len(events))
+}
+
+func displaySession(e models.Event) string {
+	if e.ServerSession != "" {
+		return e.ServerSession
+	}
+	return e.SessionID
 }
 
 func reverseKnowledge(items []models.Knowledge) {
@@ -474,6 +491,255 @@ func parseDuration(s string) time.Duration {
 		log.Fatalf("invalid duration %q: %v", s, err)
 	}
 	return d
+}
+
+// --- diff ---
+
+func cmdDiff(args []string) {
+	fs := flag.NewFlagSet("diff", flag.ExitOnError)
+	project := fs.String("project", "", "project directory (default: cwd)")
+	global := fs.Bool("global", false, "use global ~/.sek store")
+	storeFlag := fs.String("store", "", "explicit store path")
+	since := fs.String("since", "", "show records since this duration ago (e.g. 24h, 168h)")
+	from := fs.String("from", "", "show records from this timestamp (RFC3339 or YYYY-MM-DD)")
+	to := fs.String("to", "", "show records until this timestamp (RFC3339 or YYYY-MM-DD)")
+	session := fs.String("session", "", "show records linked to this session or server session")
+	limit := fs.Int("limit", 100, "max events and knowledge entries to inspect")
+	full := fs.Bool("full", false, "print full content instead of compact rows")
+	fs.Parse(args)
+
+	if *session != "" && (*since != "" || *from != "" || *to != "") {
+		log.Fatalf("--session cannot be combined with --since, --from, or --to")
+	}
+	if *session != "" && looksLikeKnowledgeID(*session) {
+		log.Fatalf("%q looks like a knowledge id, not a session id; use `sekctl show %s` to inspect its source event/session", *session, *session)
+	}
+	if *since != "" && *from != "" {
+		log.Fatalf("--since and --from are mutually exclusive")
+	}
+
+	s := openStore(*project, *global, *storeFlag)
+	defer s.Close()
+
+	ctx := context.Background()
+	var events []models.Event
+	var knowledge []models.Knowledge
+	var title string
+	var err error
+
+	if *session != "" {
+		title = fmt.Sprintf("session %s", *session)
+		events, knowledge, err = diffBySession(ctx, s, *session, *limit)
+	} else {
+		start, end := diffTimeRange(*since, *from, *to)
+		title = fmt.Sprintf("%s to %s", start.Format(time.RFC3339), end.Format(time.RFC3339))
+		events, knowledge, err = diffByTimeRange(ctx, s, start, end, *limit)
+	}
+	if err != nil {
+		log.Fatalf("diff: %v", err)
+	}
+
+	printDiff(title, events, knowledge, *full)
+}
+
+func diffTimeRange(since string, from string, to string) (time.Time, time.Time) {
+	end := time.Now()
+	if to != "" {
+		parsed, err := parseTimestamp(to)
+		if err != nil {
+			log.Fatalf("invalid --to timestamp %q: %v", to, err)
+		}
+		end = parsed
+	}
+
+	if since == "" && from == "" {
+		since = "24h"
+	}
+	if since != "" {
+		return end.Add(-parseDuration(since)), end
+	}
+
+	start, err := parseTimestamp(from)
+	if err != nil {
+		log.Fatalf("invalid --from timestamp %q: %v", from, err)
+	}
+	return start, end
+}
+
+func diffByTimeRange(ctx context.Context, s store.Store, start time.Time, end time.Time, limit int) ([]models.Event, []models.Knowledge, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+
+	events, err := s.Query(ctx, limit)
+	if err != nil {
+		return nil, nil, err
+	}
+	knowledge, err := s.List(ctx, "", limit)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	events = filterEventsByTime(events, start, end)
+	knowledge = filterKnowledgeByTime(knowledge, start, end)
+	reverseEvents(events)
+	reverseKnowledge(knowledge)
+	return events, knowledge, nil
+}
+
+func diffBySession(ctx context.Context, s store.Store, session string, limit int) ([]models.Event, []models.Knowledge, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+
+	eventsByID := make(map[string]models.Event)
+	for _, fetch := range []func(context.Context, string, int) ([]models.Event, error){
+		s.EventsBySession,
+		s.EventsByServerSession,
+	} {
+		events, err := fetch(ctx, session, limit)
+		if err != nil {
+			return nil, nil, err
+		}
+		for _, e := range events {
+			eventsByID[e.ID] = e
+		}
+	}
+
+	events := make([]models.Event, 0, len(eventsByID))
+	sourceIDs := make(map[string]bool)
+	for _, e := range eventsByID {
+		events = append(events, e)
+		sourceIDs[e.ID] = true
+	}
+	sortEvents(events)
+
+	allKnowledge, err := s.List(ctx, "", limit)
+	if err != nil {
+		return nil, nil, err
+	}
+	knowledge := filterKnowledgeBySources(allKnowledge, sourceIDs)
+	reverseKnowledge(knowledge)
+	return events, knowledge, nil
+}
+
+func filterEventsByTime(events []models.Event, start time.Time, end time.Time) []models.Event {
+	var result []models.Event
+	for _, e := range events {
+		if !e.Timestamp.Before(start) && !e.Timestamp.After(end) {
+			result = append(result, e)
+		}
+	}
+	return result
+}
+
+func filterKnowledgeByTime(knowledge []models.Knowledge, start time.Time, end time.Time) []models.Knowledge {
+	var result []models.Knowledge
+	for _, k := range knowledge {
+		if !k.CreatedAt.Before(start) && !k.CreatedAt.After(end) {
+			result = append(result, k)
+		}
+	}
+	return result
+}
+
+func filterKnowledgeBySources(knowledge []models.Knowledge, sourceIDs map[string]bool) []models.Knowledge {
+	var result []models.Knowledge
+	knownIDs := make(map[string]bool)
+	changed := true
+	for changed {
+		changed = false
+		for _, k := range knowledge {
+			if knownIDs[k.ID] {
+				continue
+			}
+			if hasAnySource(k.SourceIDs, sourceIDs) {
+				result = append(result, k)
+				knownIDs[k.ID] = true
+				sourceIDs[k.ID] = true
+				changed = true
+			}
+		}
+	}
+	return result
+}
+
+func hasAnySource(sourceIDs []string, wanted map[string]bool) bool {
+	for _, id := range sourceIDs {
+		if wanted[id] {
+			return true
+		}
+	}
+	return false
+}
+
+func sortEvents(events []models.Event) {
+	for i := 1; i < len(events); i++ {
+		for j := i; j > 0 && events[j].Timestamp.Before(events[j-1].Timestamp); j-- {
+			events[j], events[j-1] = events[j-1], events[j]
+		}
+	}
+}
+
+func printDiff(title string, events []models.Event, knowledge []models.Knowledge, full bool) {
+	obs, lessons, patterns := countKnowledgeLevels(knowledge)
+	fmt.Printf("Diff: %s\n", title)
+	fmt.Printf("Events: %d\n", len(events))
+	fmt.Printf("Knowledge: %d (observations: %d, lessons: %d, patterns: %d)\n\n", len(knowledge), obs, lessons, patterns)
+
+	if len(events) > 0 {
+		fmt.Println("Events:")
+		for _, e := range events {
+			if full {
+				printEventFull(e)
+				fmt.Println()
+			} else {
+				fmt.Printf("- %s [%s] %s\n", e.ID, e.Type, compact(e.Content, 90))
+			}
+		}
+		fmt.Println()
+	}
+
+	if len(knowledge) > 0 {
+		fmt.Println("Knowledge:")
+		for _, k := range knowledge {
+			if full {
+				printKnowledgeFull(k)
+				fmt.Println()
+			} else {
+				fmt.Printf("- %s [%s] %s\n", k.ID, k.Level, compact(k.Content, 100))
+			}
+		}
+	}
+}
+
+func countKnowledgeLevels(knowledge []models.Knowledge) (int, int, int) {
+	var obs, lessons, patterns int
+	for _, k := range knowledge {
+		switch k.Level {
+		case models.LevelObservation:
+			obs++
+		case models.LevelLesson:
+			lessons++
+		case models.LevelPattern:
+			patterns++
+		}
+	}
+	return obs, lessons, patterns
+}
+
+func compact(s string, max int) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if len(s) > max {
+		return s[:max] + "..."
+	}
+	return s
+}
+
+func looksLikeKnowledgeID(id string) bool {
+	return strings.HasPrefix(id, "obs-") ||
+		strings.HasPrefix(id, "lesson-") ||
+		strings.HasPrefix(id, "pattern-")
 }
 
 // --- prune ---
