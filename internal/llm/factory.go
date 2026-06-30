@@ -18,6 +18,8 @@ type Config struct {
 
 func NewProvider(cfg Config) (Provider, error) {
 	switch cfg.Provider {
+	case "":
+		return NewOpenAIProvider(cfg.APIKey, cfg.BaseURL), nil
 	case ProviderOpenAI:
 		return NewOpenAIProvider(cfg.APIKey, cfg.BaseURL), nil
 	case ProviderAnthropic:
@@ -25,4 +27,18 @@ func NewProvider(cfg Config) (Provider, error) {
 	default:
 		return nil, fmt.Errorf("unknown provider: %s", cfg.Provider)
 	}
+}
+
+func ResolveAPIKey(cfg *Config, envKey string) error {
+	if cfg.APIKey == "" {
+		cfg.APIKey = envKey
+	}
+	if cfg.APIKey != "" {
+		return nil
+	}
+	if (cfg.Provider == "" || cfg.Provider == ProviderOpenAI) && cfg.BaseURL != "" {
+		cfg.APIKey = "none"
+		return nil
+	}
+	return fmt.Errorf("LLM API key required: set --llm-key or SEK_LLM_KEY")
 }

@@ -32,11 +32,26 @@ Under active development. The core workflow is functional:
 
 Requirements:
 
-- Go 1.22+;
 - LLM endpoint for chat completions;
 - embeddings endpoint for vector search (optional, keyword fallback works without it).
 
-Build:
+### Download a release
+
+Tagged releases are built by GitHub Actions with GoReleaser. Download the latest
+`sekd` and `sekctl` archives for your platform from:
+
+https://github.com/seryogakovalyov/sek/releases
+
+Each release includes separate archives for `sekd` and `sekctl` on Linux,
+macOS, and Windows for `amd64` and `arm64`, plus `checksums.txt`.
+
+### Build from source
+
+Use this path for development or when you need a local build from `main`.
+
+Requirements:
+
+- Go 1.26.x.
 
 ```bash
 go build -o sekd ./cmd/sekd
@@ -455,7 +470,7 @@ Local artifacts `sekd`, `sekctl`, and `.sek/` are not committed.
 - [x] Feedback loop via `report_usage` and `usage_count`
 - [ ] Knowledge lifecycle: `supersedes`, `conflicts_with`, `deprecated_at`
 - [ ] Automatic cleanup of stale observations
-- [ ] `sekctl --help` with exit code 0
+- [x] `sekctl --help` with exit code 0
 - [ ] MCP resources for read-only knowledge
 - [ ] Experience diff between sessions
 - [ ] Knowledge export/import between stores

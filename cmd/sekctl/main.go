@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -22,16 +23,22 @@ import (
 func main() {
 	log.SetFlags(0)
 	log.SetPrefix("sekctl: ")
+	os.Exit(run(os.Args[1:], os.Stderr))
+}
 
-	if len(os.Args) < 2 {
-		printUsage()
-		os.Exit(1)
+func run(argv []string, stderr io.Writer) int {
+	if len(argv) < 1 {
+		printUsage(stderr)
+		return 1
 	}
 
-	cmd := os.Args[1]
-	args := os.Args[2:]
+	cmd := argv[0]
+	args := argv[1:]
 
 	switch cmd {
+	case "help", "-h", "--help":
+		printUsage(stderr)
+		return 0
 	case "init":
 		cmdInit(args)
 	case "list":
@@ -49,14 +56,16 @@ func main() {
 	case "query":
 		cmdQuery(args)
 	default:
-		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", cmd)
-		printUsage()
-		os.Exit(1)
+		fmt.Fprintf(stderr, "unknown command: %s\n\n", cmd)
+		printUsage(stderr)
+		return 1
 	}
+
+	return 0
 }
 
-func printUsage() {
-	fmt.Fprint(os.Stderr, `Usage: sekctl <command> [flags]
+func printUsage(w io.Writer) {
+	fmt.Fprint(w, `Usage: sekctl <command> [flags]
 
 Commands:
   init              Create .sek directory and store
@@ -68,6 +77,7 @@ Commands:
   prune             Delete all knowledge and events
   query <task>      Query experience (needs LLM flags)
 
+Run 'sekctl --help' to show this help.
 Run 'sekctl <command> -help' for command-specific flags.
 `)
 }
@@ -348,7 +358,8 @@ func parseTimestamp(s string) (time.Time, error) {
 func splitArgs(args []string) (task string, flags []string) {
 	var parts []string
 	afterSep := false
-	for _, a := range args {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
 		if a == "--" {
 			afterSep = true
 			continue
@@ -357,10 +368,27 @@ func splitArgs(args []string) (task string, flags []string) {
 			parts = append(parts, a)
 		} else {
 			flags = append(flags, a)
+			if flagNeedsValue(a) && i+1 < len(args) {
+				i++
+				flags = append(flags, args[i])
+			}
 		}
 	}
 	task = strings.Join(parts, " ")
 	return
+}
+
+func flagNeedsValue(arg string) bool {
+	if strings.Contains(arg, "=") {
+		return false
+	}
+	name := strings.TrimLeft(arg, "-")
+	switch name {
+	case "project", "store", "llm-provider", "llm-model", "llm-key", "llm-base-url", "max-tokens", "max-entries":
+		return true
+	default:
+		return false
+	}
 }
 
 func parseDuration(s string) time.Duration {
@@ -422,18 +450,14 @@ func cmdQuery(args []string) {
 		log.Fatal("usage: sekctl query <task description>")
 	}
 
-	if *llmKey == "" {
-		*llmKey = os.Getenv("SEK_LLM_KEY")
-	}
-	if *llmKey == "" {
-		log.Fatal("LLM API key required: set --llm-key or SEK_LLM_KEY")
-	}
-
 	cfg := llm.Config{
 		Provider: llm.ProviderType(*llmProvider),
 		APIKey:   *llmKey,
 		BaseURL:  *llmBaseURL,
 		Model:    *llmModel,
+	}
+	if err := llm.ResolveAPIKey(&cfg, os.Getenv("SEK_LLM_KEY")); err != nil {
+		log.Fatal(err)
 	}
 	provider, err := llm.NewProvider(cfg)
 	if err != nil {

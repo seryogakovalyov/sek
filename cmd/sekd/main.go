@@ -108,11 +108,8 @@ func main() {
 	}
 
 	// 4. API key fallback
-	if cfg.LLM.APIKey == "" {
-		cfg.LLM.APIKey = os.Getenv("SEK_LLM_KEY")
-	}
-	if cfg.LLM.APIKey == "" {
-		log.Fatal("LLM API key required: set --llm-key or SEK_LLM_KEY")
+	if err := llm.ResolveAPIKey(&cfg.LLM, os.Getenv("SEK_LLM_KEY")); err != nil {
+		log.Fatal(err)
 	}
 
 	// 5. Determine store path. Priority: --store > --global > config store.path > --project.
