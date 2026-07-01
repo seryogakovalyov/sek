@@ -41,6 +41,11 @@ type GCResult struct {
 type Store interface {
 	EventStore
 	KnowledgeStore
+	StartSession(ctx context.Context, session *models.SessionLog) error
+	FinishSession(ctx context.Context, sessionID string, endedAt string, snapshot *models.GitSnapshot) error
+	RecoverOpenSessions(ctx context.Context, projectDir string, endedAt string, snapshot *models.GitSnapshot) error
+	GetSession(ctx context.Context, sessionID string) (*models.SessionLog, error)
+	ListSessions(ctx context.Context, limit int) ([]models.SessionLog, error)
 	DeleteKnowledge(ctx context.Context, id string) error
 	Clear(ctx context.Context) error
 	Stats(ctx context.Context) (*StoreStats, error)

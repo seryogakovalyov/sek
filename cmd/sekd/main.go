@@ -14,9 +14,9 @@ import (
 	"time"
 
 	"github.com/seryogakovalyov/sek/internal/config"
-	"github.com/seryogakovalyov/sek/internal/distill"
 	"github.com/seryogakovalyov/sek/internal/llm"
 	"github.com/seryogakovalyov/sek/internal/mcp"
+	"github.com/seryogakovalyov/sek/internal/session"
 	"github.com/seryogakovalyov/sek/internal/store"
 	"github.com/seryogakovalyov/sek/internal/storepath"
 )
@@ -143,28 +143,36 @@ func main() {
 	// 8. Session ID
 	sessionID := generateSessionID()
 	log.Printf("session ID: %s", sessionID)
+	sessionManager := session.NewManager(session.Options{
+		Store:      st,
+		Provider:   provider,
+		Embedder:   embedder,
+		ModelName:  cfg.LLM.Model,
+		SessionID:  sessionID,
+		ProjectDir: cfg.ProjectDir,
+	})
 
 	// 9. Run
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
+	sessionManager.Start(ctx)
 
+	var runErr error
 	if cfg.MCP.HTTPAddr != "" {
 		log.Printf("starting HTTP server on %s", cfg.MCP.HTTPAddr)
-		if err := mcp.ServeHTTP(ctx, st, provider, embedder, cfg.LLM.Model, sessionID, cfg.MCP.HTTPAddr); err != nil {
-			log.Fatalf("mcp sse: %v", err)
-		}
+		runErr = mcp.ServeHTTP(ctx, st, provider, embedder, cfg.LLM.Model, sessionID, cfg.MCP.HTTPAddr)
 	} else {
 		// stdio mode
-		if err := mcp.Serve(ctx, st, provider, embedder, cfg.LLM.Model, sessionID); err != nil {
-			log.Fatalf("mcp: %v", err)
-		}
+		runErr = mcp.Serve(ctx, st, provider, embedder, cfg.LLM.Model, sessionID)
 	}
 
-	// 10. Session digest
-	log.Println("session ended, running session digest...")
+	// 10. Session finalization
 	digestCtx, digestCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer digestCancel()
-	distill.SessionDigest(digestCtx, st, provider, embedder, cfg.LLM.Model, sessionID)
+	sessionManager.Finish(digestCtx)
+	if runErr != nil {
+		log.Fatalf("mcp: %v", runErr)
+	}
 }
 
 func generateSessionID() string {

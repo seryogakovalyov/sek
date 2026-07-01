@@ -296,6 +296,8 @@ sekctl list --limit 50
 sekctl show obs-abc123
 
 sekctl log --limit 10
+sekctl sessions
+sekctl session sek-abc123
 sekctl diff --since 24h
 sekctl diff --from 2026-06-30T10:00:00 --to 2026-06-30T13:00:00
 sekctl diff --session sek-abc123
@@ -324,6 +326,8 @@ sekctl list --global
 | `list` | `--project`, `--global`, `--store`, `--level`, `--limit` | Show knowledge entries |
 | `log` | `--project`, `--global`, `--store`, `--limit` | Show raw events |
 | `show <id>` | `--project`, `--global`, `--store` | Show a full knowledge entry or event |
+| `sessions` | `--project`, `--global`, `--store`, `--limit` | List recorded SEK runtime sessions |
+| `session <id>` | `--project`, `--global`, `--store` | Show session git snapshots and observer metadata |
 | `diff` | `--project`, `--global`, `--store`, `--since`, `--from`, `--to`, `--session`, `--full`, `--limit` | Review events and knowledge added by time range or session |
 | `usage`, `telemetry` | `--project`, `--global`, `--store`, `--top`, `--sessions`, `--session`, `--unused`, `--full`, `--limit` | Inspect retrieval usage telemetry and top used knowledge |
 | `query` | `--project`, `--global`, `--store`, `--llm-*`, `--max-tokens`, `--max-entries`, `--trace` | Find experience via reuse engine |
@@ -395,8 +399,16 @@ MCP client
   ├─ stdio
   └─ Streamable HTTP (--http :9090)
         ↓
-SEK MCP server
-  ├─ capture service
+SEK runtime (sekd)
+  ├─ MCP server
+  │   ├─ capture_event
+  │   ├─ query_experience
+  │   ├─ report_usage
+  │   └─ read-only resources
+  ├─ SessionManager
+  │   ├─ git snapshot on startup
+  │   ├─ git snapshot on shutdown
+  │   └─ session digest on shutdown
   ├─ distill pipeline
   │   ├─ LLM chat completion → observation
   │   ├─ semantic deduplication
@@ -406,8 +418,7 @@ SEK MCP server
   │   ├─ vector search
   │   ├─ keyword fallback
   │   └─ scoring: similarity + recency + importance + usage
-  ├─ SQLite store: events, knowledge, retrieval_log
-  └─ session digest on shutdown
+  └─ SQLite store: events, knowledge, retrieval_log, session_log
 ```
 
 ### Data lifecycle
@@ -423,7 +434,7 @@ agent event
   → report_usage feedback
 ```
 
-On stdio session shutdown, SEK collects the current `server_session` events and generates a session digest at the `lesson` level if enough events exist.
+On `sekd` startup, the embedded `SessionManager` records a lightweight git snapshot for the current project. On shutdown, it records the final git snapshot and generates a session digest at the `lesson` level if enough events exist. The same runtime component is transport-neutral so Streamable HTTP can reuse it later without introducing a separate daemon.
 
 ### Retrieval
 
@@ -496,6 +507,7 @@ Local artifacts `sekd`, `sekctl`, and `.sek/` are not committed.
 - [x] `sekctl gc --before <timestamp>` + orphan cleanup
 - [x] Retrieval telemetry via `retrieval_log`
 - [x] Feedback loop via `report_usage` and `usage_count`
+- [x] Embedded SessionManager with startup/shutdown git snapshots
 - [ ] Knowledge lifecycle: `supersedes`, `conflicts_with`, `deprecated_at`
 - [ ] Automatic cleanup of stale observations
 - [x] `sekctl --help` with exit code 0

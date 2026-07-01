@@ -135,7 +135,144 @@ func migrate(db *sql.DB) error {
 		// ignore
 	}
 
+	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS session_log (
+		id TEXT PRIMARY KEY,
+		started_at TEXT NOT NULL,
+		ended_at TEXT DEFAULT '',
+		project_dir TEXT NOT NULL,
+		status TEXT NOT NULL,
+		start_snapshot TEXT DEFAULT '{}',
+		end_snapshot TEXT DEFAULT '{}'
+	)`)
+	if err != nil {
+		return err
+	}
+	_, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_session_log_started ON session_log(started_at)`)
+	if err != nil {
+		// ignore
+	}
+
 	return nil
+}
+
+func (s *sqliteStore) StartSession(ctx context.Context, session *models.SessionLog) error {
+	startSnapshot, err := json.Marshal(session.StartSnapshot)
+	if err != nil {
+		return err
+	}
+	status := session.Status
+	if status == "" {
+		status = "running"
+	}
+	_, err = s.db.ExecContext(ctx,
+		`INSERT OR REPLACE INTO session_log (id, started_at, ended_at, project_dir, status, start_snapshot, end_snapshot) VALUES (?, ?, ?, ?, ?, ?, COALESCE((SELECT end_snapshot FROM session_log WHERE id = ?), '{}'))`,
+		session.ID, session.StartedAt.Format(time.RFC3339Nano), "", session.ProjectDir, status, string(startSnapshot), session.ID,
+	)
+	return err
+}
+
+func (s *sqliteStore) FinishSession(ctx context.Context, sessionID string, endedAt string, snapshot *models.GitSnapshot) error {
+	endSnapshot, err := json.Marshal(snapshot)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx,
+		`UPDATE session_log SET ended_at = ?, status = ?, end_snapshot = ? WHERE id = ?`,
+		endedAt, "finished", string(endSnapshot), sessionID,
+	)
+	return err
+}
+
+func (s *sqliteStore) RecoverOpenSessions(ctx context.Context, projectDir string, endedAt string, snapshot *models.GitSnapshot) error {
+	endSnapshot, err := json.Marshal(snapshot)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx,
+		`UPDATE session_log SET ended_at = ?, status = ?, end_snapshot = ? WHERE project_dir = ? AND status = ? AND ended_at = ''`,
+		endedAt, "interrupted", string(endSnapshot), projectDir, "running",
+	)
+	return err
+}
+
+func (s *sqliteStore) GetSession(ctx context.Context, sessionID string) (*models.SessionLog, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, started_at, ended_at, project_dir, status, start_snapshot, end_snapshot FROM session_log WHERE id = ? LIMIT 1`,
+		sessionID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	sessions, err := scanSessions(rows)
+	if err != nil {
+		return nil, err
+	}
+	if len(sessions) == 0 {
+		return nil, sql.ErrNoRows
+	}
+	return &sessions[0], nil
+}
+
+func (s *sqliteStore) ListSessions(ctx context.Context, limit int) ([]models.SessionLog, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, started_at, ended_at, project_dir, status, start_snapshot, end_snapshot FROM session_log ORDER BY started_at DESC LIMIT ?`,
+		limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanSessions(rows)
+}
+
+func scanSessions(rows *sql.Rows) ([]models.SessionLog, error) {
+	var sessions []models.SessionLog
+	for rows.Next() {
+		session, err := scanSession(rows)
+		if err != nil {
+			return nil, err
+		}
+		sessions = append(sessions, *session)
+	}
+	return sessions, rows.Err()
+}
+
+type sessionScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanSession(row sessionScanner) (*models.SessionLog, error) {
+	var session models.SessionLog
+	var startedAt string
+	var endedAt string
+	var startSnapshot string
+	var endSnapshot string
+	if err := row.Scan(&session.ID, &startedAt, &endedAt, &session.ProjectDir, &session.Status, &startSnapshot, &endSnapshot); err != nil {
+		return nil, err
+	}
+	session.StartedAt, _ = time.Parse(time.RFC3339Nano, startedAt)
+	if endedAt != "" {
+		session.EndedAt, _ = time.Parse(time.RFC3339Nano, endedAt)
+	}
+	if startSnapshot != "" && startSnapshot != "{}" {
+		var snapshot models.GitSnapshot
+		if err := json.Unmarshal([]byte(startSnapshot), &snapshot); err != nil {
+			return nil, err
+		}
+		session.StartSnapshot = &snapshot
+	}
+	if endSnapshot != "" && endSnapshot != "{}" {
+		var snapshot models.GitSnapshot
+		if err := json.Unmarshal([]byte(endSnapshot), &snapshot); err != nil {
+			return nil, err
+		}
+		session.EndSnapshot = &snapshot
+	}
+	return &session, nil
 }
 
 func (s *sqliteStore) Append(ctx context.Context, event *models.Event) error {

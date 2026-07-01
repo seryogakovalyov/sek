@@ -50,6 +50,10 @@ func run(argv []string, stderr io.Writer) int {
 		cmdLog(args)
 	case "show":
 		cmdShow(args)
+	case "session":
+		cmdSession(args)
+	case "sessions":
+		cmdSessions(args)
 	case "rm":
 		cmdRemove(args)
 	case "gc":
@@ -81,6 +85,8 @@ Commands:
   list              List knowledge entries
   log               List recent events
   show <id>         Show a full knowledge entry or event
+  sessions          List recorded SEK sessions
+  session <id>      Show session observer details
   rm <id>           Delete knowledge by ID
   gc                Delete old entries (GC by TTL or absolute cutoff)
   diff              Review events and knowledge added by time range or session
@@ -324,6 +330,142 @@ func printEventFull(e models.Event) {
 
 func isNotFound(err error) bool {
 	return errors.Is(err, sql.ErrNoRows)
+}
+
+// --- sessions ---
+
+func cmdSessions(args []string) {
+	fs := flag.NewFlagSet("sessions", flag.ExitOnError)
+	project := fs.String("project", "", "project directory (default: cwd)")
+	global := fs.Bool("global", false, "use global ~/.sek store")
+	storeFlag := fs.String("store", "", "explicit store path")
+	limit := fs.Int("limit", 20, "max sessions")
+	fs.Parse(args)
+
+	s := openStore(*project, *global, *storeFlag)
+	defer s.Close()
+
+	sessions, err := s.ListSessions(context.Background(), *limit)
+	if err != nil {
+		log.Fatalf("sessions: %v", err)
+	}
+	if len(sessions) == 0 {
+		fmt.Println("no sessions recorded")
+		return
+	}
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "ID\tSTATUS\tSTARTED\tENDED\tDIRTY\tFILES\tPROJECT")
+	for _, session := range sessions {
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%d\t%s\n",
+			session.ID,
+			session.Status,
+			session.StartedAt.Format("2006-01-02 15:04"),
+			formatOptionalTime(session.EndedAt),
+			formatSessionDirty(session),
+			sessionChangedFileCount(session),
+			session.ProjectDir,
+		)
+	}
+	w.Flush()
+}
+
+func cmdSession(args []string) {
+	fs := flag.NewFlagSet("session", flag.ExitOnError)
+	project := fs.String("project", "", "project directory (default: cwd)")
+	global := fs.Bool("global", false, "use global ~/.sek store")
+	storeFlag := fs.String("store", "", "explicit store path")
+	fs.Parse(args)
+
+	id := fs.Arg(0)
+	if id == "" {
+		log.Fatal("usage: sekctl session <session-id>")
+	}
+
+	s := openStore(*project, *global, *storeFlag)
+	defer s.Close()
+
+	session, err := s.GetSession(context.Background(), id)
+	if err != nil {
+		if isNotFound(err) {
+			log.Fatalf("session not found: %s", id)
+		}
+		log.Fatalf("session: %v", err)
+	}
+	printSessionFull(*session)
+}
+
+func printSessionFull(session models.SessionLog) {
+	fmt.Printf("ID:          %s\n", session.ID)
+	fmt.Printf("Status:      %s\n", session.Status)
+	fmt.Printf("Started:     %s\n", session.StartedAt.Format(time.RFC3339Nano))
+	if !session.EndedAt.IsZero() {
+		fmt.Printf("Ended:       %s\n", session.EndedAt.Format(time.RFC3339Nano))
+	}
+	fmt.Printf("Project dir: %s\n", session.ProjectDir)
+	fmt.Println()
+	printGitSnapshot("Start git snapshot", session.StartSnapshot)
+	fmt.Println()
+	printGitSnapshot("End git snapshot", session.EndSnapshot)
+}
+
+func printGitSnapshot(title string, snapshot *models.GitSnapshot) {
+	fmt.Println(title + ":")
+	if snapshot == nil {
+		fmt.Println("  none")
+		return
+	}
+	fmt.Printf("  Captured: %s\n", snapshot.CapturedAt.Format(time.RFC3339Nano))
+	if !snapshot.Available {
+		fmt.Println("  Available: no")
+		if snapshot.Error != "" {
+			fmt.Printf("  Error: %s\n", snapshot.Error)
+		}
+		return
+	}
+	fmt.Println("  Available: yes")
+	fmt.Printf("  Repo root: %s\n", snapshot.RepoRoot)
+	fmt.Printf("  HEAD:      %s\n", snapshot.Head)
+	fmt.Printf("  Dirty:     %t\n", snapshot.Dirty)
+	if len(snapshot.ChangedFiles) > 0 {
+		fmt.Printf("  Changed files:\n")
+		for _, file := range snapshot.ChangedFiles {
+			fmt.Printf("    - %s\n", file)
+		}
+	}
+	if snapshot.DiffStat != "" {
+		fmt.Println("  Diff stat:")
+		for _, line := range strings.Split(snapshot.DiffStat, "\n") {
+			fmt.Printf("    %s\n", line)
+		}
+	}
+}
+
+func formatOptionalTime(t time.Time) string {
+	if t.IsZero() {
+		return "-"
+	}
+	return t.Format("2006-01-02 15:04")
+}
+
+func formatSessionDirty(session models.SessionLog) string {
+	if session.EndSnapshot != nil && session.EndSnapshot.Available {
+		return fmt.Sprintf("%t", session.EndSnapshot.Dirty)
+	}
+	if session.StartSnapshot != nil && session.StartSnapshot.Available {
+		return fmt.Sprintf("%t", session.StartSnapshot.Dirty)
+	}
+	return "n/a"
+}
+
+func sessionChangedFileCount(session models.SessionLog) int {
+	if session.EndSnapshot != nil {
+		return len(session.EndSnapshot.ChangedFiles)
+	}
+	if session.StartSnapshot != nil {
+		return len(session.StartSnapshot.ChangedFiles)
+	}
+	return 0
 }
 
 // --- rm ---
